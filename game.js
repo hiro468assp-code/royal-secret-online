@@ -111,11 +111,12 @@ class GameRoom {
       this.addPublic(`${player.name} の僧侶の加護が解けました。`);
     }
     this.turnNumber += 1;
+    const heldMinisterBeforeDraw = player.hand.some((c) => c.value === 7);
     const drawn = this.deck.pop();
     if (!drawn) return this.finishShowdown();
     player.hand.push(drawn);
     this.addPublic(`${player.name} の手番です（山札 ${this.deck.length}枚）。`);
-    if (player.hand.some((c) => c.value === 7) && player.hand.reduce((sum, c) => sum + c.value, 0) >= 12) {
+    if (heldMinisterBeforeDraw && player.hand.reduce((sum, c) => sum + c.value, 0) >= 12) {
       this.addPublic(`【大臣】${player.name}：ドロー後の手札合計が12以上になったため、即座に脱落しました。`, 'effect');
       this.eliminate(player, '大臣');
       return this.afterAction();
@@ -222,6 +223,8 @@ class GameRoom {
       this.addPublic(`【将軍】${actor.name} ⇄ ${target.name}：手札を交換しました（内容は当事者だけに表示）。`, 'effect');
       this.addPrivate(actor, `${target.name} と交換し、${this.cardLabel(other)} を受け取りました。`);
       this.addPrivate(target, `${actor.name} と交換し、${this.cardLabel(own)} を受け取りました。`);
+      if (other?.value === 7) this.addPrivate(actor, '受け取った大臣は交換時には判定されません。次に大臣を持ったままドローした時だけ判定します。');
+      if (own?.value === 7) this.addPrivate(target, '受け取った大臣は交換時には判定されません。次に大臣を持ったままドローした時だけ判定します。');
     } else if (card.value === 8) {
       this.addPublic(`【姫】${actor.name}：姫を場に出したため脱落しました。`, 'effect');
       this.eliminate(actor, '姫');

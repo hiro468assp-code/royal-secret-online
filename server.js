@@ -84,7 +84,8 @@ function createAppServer(options = {}) {
       const player = makePlayer(cleanName(data?.name), socket.id, undefined, data?.color);
       const room = new GameRoom(roomCode, player, { targetScore: Number(data?.targetScore) || 3 });
       rooms.set(roomCode, room);
-      socket.data = { roomCode, sessionId: player.sessionId };
+      socket.data.roomCode = roomCode;
+      socket.data.sessionId = player.sessionId;
       socket.join(roomCode);
       room.addPublic(`${player.name} がルームを作成しました。`);
       emitRoom(room);
@@ -98,7 +99,8 @@ function createAppServer(options = {}) {
       if (!room) throw new Error('ルームが見つかりません。');
       const player = makePlayer(cleanName(data?.name), socket.id, undefined, data?.color);
       room.addPlayer(player);
-      socket.data = { roomCode, sessionId: player.sessionId };
+      socket.data.roomCode = roomCode;
+      socket.data.sessionId = player.sessionId;
       socket.join(roomCode);
       emitRoom(room);
       return { roomCode, sessionId: player.sessionId };
@@ -113,7 +115,8 @@ function createAppServer(options = {}) {
       const timerKey = `${roomCode}:${player.sessionId}`;
       clearTimeout(disconnectTimers.get(timerKey));
       disconnectTimers.delete(timerKey);
-      socket.data = { roomCode, sessionId: player.sessionId };
+      socket.data.roomCode = roomCode;
+      socket.data.sessionId = player.sessionId;
       socket.join(roomCode);
       emitRoom(room);
       return { roomCode, sessionId: player.sessionId };

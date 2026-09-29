@@ -61,4 +61,8 @@ test('アクセスキーが設定されている場合は認証前のルーム�
   assert.equal(unlocked.ok, true);
   const created = await emit(socket, 'createRoom', { name: '招待者' });
   assert.equal(created.ok, true);
+  const left = await emit(socket, 'leaveRoom');
+  assert.equal(left.ok, true);
+  const createdAgain = await emit(socket, 'createRoom', { name: '再入室者' });
+  assert.equal(createdAgain.ok, true, 'タイトルへ戻った後も同じ接続の認証状態を維持する');
 });

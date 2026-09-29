@@ -102,8 +102,8 @@ test('将軍の交換内容は当事者だけに見え、公開ログには漏�
   assert.equal(actor.hand[0].value, 7);
   assert.equal(target.hand[0].value, 8);
   assert.equal(room.publicLog.some((l) => /姫|大臣/.test(l.text)), false);
-  assert.match(room.publicState(actor.sessionId).privateLog.at(-1).text, /大臣（7）/);
-  assert.match(room.publicState(target.sessionId).privateLog.at(-1).text, /姫（8）/);
+  assert.equal(room.publicState(actor.sessionId).privateLog.some((l) => /大臣（7）/.test(l.text)), true);
+  assert.equal(room.publicState(target.sessionId).privateLog.some((l) => /姫（8）/.test(l.text)), true);
 });
 
 test('大臣を持ちドロー後合計12以上ならカード選択前に脱落', () => {
@@ -112,6 +112,28 @@ test('大臣を持ちドロー後合計12以上ならカード選択前に脱落
   room.beginTurn();
   assert.equal(actor.alive, false);
   assert.equal(actor.played.filter((c) => c.reason === 'eliminated').length, 2);
+});
+
+test('大臣をドローして合計12になっても、そのドローでは脱落しない', () => {
+  const { room, actor } = turnRoom([5], [2], { deck: [card(7,'minister-draw')] });
+  room.currentPlayerId = actor.id;
+  room.beginTurn();
+  assert.equal(actor.alive, true);
+  assert.deepEqual(actor.hand.map((c) => c.value), [5, 7]);
+});
+
+test('将軍で大臣を受け取った時は生存し、次に大臣を持ってドローした時だけ判定する', () => {
+  const { room, actor, target } = turnRoom([6, 4], [7], { deck: [card(1,'target-draw')] });
+  playTarget(room, actor, target, 'a-0');
+  assert.equal(actor.alive, true);
+  assert.equal(actor.hand[0].value, 7);
+  assert.match(room.publicState(actor.sessionId).privateLog.at(-1).text, /交換時には判定されません/);
+
+  room.phase = 'turn';
+  room.currentPlayerId = actor.id;
+  room.deck = [card(5,'minister-fatal-draw')];
+  room.beginTurn();
+  assert.equal(actor.alive, false);
 });
 
 test('姫を通常プレイすると脱落する', () => {
