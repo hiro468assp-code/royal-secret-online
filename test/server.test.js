@@ -24,7 +24,7 @@ test('2クライアントが作成・参加・開始でき、相手の手札は�
   t.after(() => { host.close(); guest.close(); });
   await Promise.all([new Promise((r) => host.on('connect', r)), new Promise((r) => guest.on('connect', r))]);
 
-  const created = await emit(host, 'createRoom', { name: 'ホスト', targetScore: 3 });
+  const created = await emit(host, 'createRoom', { name: 'ホスト', color: '#2a9d8f', targetScore: 3 });
   assert.equal(created.ok, true);
   const hostJoined = nextState(host, (s) => s.players.length === 2);
   const joined = await emit(guest, 'joinRoom', { name: 'ゲスト', roomCode: created.roomCode });
@@ -36,6 +36,7 @@ test('2クライアントが作成・参加・開始でき、相手の手札は�
   assert.equal((await emit(host, 'startMatch')).ok, true);
   const [hostState, guestState] = await Promise.all([hostStarted, guestStarted]);
   assert.equal(hostState.players.length, 2);
+  assert.equal(hostState.players.find((p) => p.name === 'ホスト').color, '#2a9d8f');
   assert.equal(guestState.players.length, 2);
   assert.equal(hostState.players.some((p) => Object.hasOwn(p, 'hand')), false);
   assert.equal(guestState.players.some((p) => Object.hasOwn(p, 'hand')), false);

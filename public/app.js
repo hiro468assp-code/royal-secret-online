@@ -5,6 +5,11 @@ let selectedCardId = null;
 let toastTimer;
 let accessRequired = true;
 let accessKey = sessionStorage.getItem('royal-secret-access') || '';
+const playerColors = ['#e15b64', '#f28e2b', '#edc948', '#59a14f', '#2a9d8f', '#4e79a7', '#7b6fd0', '#b07aa1', '#d37295', '#9c755f'];
+let selectedColor = localStorage.getItem('royal-secret-color');
+if (!playerColors.includes(selectedColor)) selectedColor = playerColors[5];
+let cardDefs = {};
+let lastSecretNoticeId = null;
 
 const storageKey = 'royal-secret-session';
 let session = JSON.parse(localStorage.getItem(storageKey) || 'null');
@@ -33,12 +38,21 @@ function showHome() { $('accessView').classList.add('hidden'); $('homeView').cla
 function enterGame() { $('accessView').classList.add('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); $('titleButton').classList.remove('hidden'); }
 function escape(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
 
+function renderColorPicker() {
+  $('colorPicker').innerHTML = playerColors.map((color, index) => `<button type="button" class="color-choice ${color === selectedColor ? 'selected' : ''}" style="--choice:${color}" data-color="${color}" role="radio" aria-checked="${color === selectedColor}" aria-label="色 ${index + 1}"></button>`).join('');
+  document.querySelectorAll('[data-color]').forEach((button) => button.onclick = () => {
+    selectedColor = button.dataset.color;
+    localStorage.setItem('royal-secret-color', selectedColor);
+    renderColorPicker();
+  });
+}
+
 $('createButton').onclick = async () => {
-  const result = await call('createRoom', { name: $('nameInput').value, targetScore: 3 });
+  const result = await call('createRoom', { name: $('nameInput').value, color: selectedColor, targetScore: 3 });
   remember(result); if (result?.ok) enterGame();
 };
 $('joinButton').onclick = async () => {
-  const result = await call('joinRoom', { name: $('nameInput').value, roomCode: $('codeInput').value });
+  const result = await call('joinRoom', { name: $('nameInput').value, color: selectedColor, roomCode: $('codeInput').value });
   remember(result); if (result?.ok) enterGame();
 };
 $('codeInput').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, ''); });
@@ -59,7 +73,11 @@ socket.on('connect', async () => {
     if (result?.ok) enterGame(); else { session = null; localStorage.removeItem(storageKey); }
   } else showHome();
 });
-socket.on('state', (next) => { state = next; selectedCardId = state.hand.some((c) => c.id === selectedCardId) ? selectedCardId : null; enterGame(); render(); });
+socket.on('state', (next) => {
+  state = next;
+  selectedCardId = state.hand.some((c) => c.id === selectedCardId) ? selectedCardId : null;
+  enterGame(); render(); showSecretNotice(state.secretNotice);
+});
 
 function render() {
   $('copyCode').textContent = state.code;
@@ -73,7 +91,7 @@ function render() {
 
 function renderPlayers() {
   $('players').innerHTML = state.players.map((p) => `
-    <article class="player ${p.id === state.currentPlayerId ? 'current' : ''} ${p.id === state.viewerId ? 'me' : ''}">
+    <article class="player ${p.id === state.currentPlayerId ? 'current' : ''} ${p.id === state.viewerId ? 'me' : ''}" style="--player-color:${p.color}">
       <div class="player-head"><span class="avatar">${escape(p.name.charAt(0))}</span><span class="player-name">${escape(p.name)}</span><span class="score">${p.score} pt</span></div>
       <div class="tags">
         ${state.phase !== 'lobby' ? `<span class="tag ${p.alive ? '' : 'out'}">${p.alive ? '生存' : '脱落'}</span>` : ''}
@@ -148,12 +166,34 @@ function renderLogs() {
   fill($('publicLog'), state.publicLog, 'まだログはありません'); fill($('privateLog'), state.privateLog, '秘密の情報はここに表示されます');
 }
 
+function showSecretNotice(notice) {
+  if (!notice || notice.id === lastSecretNoticeId || notice.type !== 'jester') return;
+  lastSecretNoticeId = notice.id;
+  $('secretTitle').textContent = notice.title;
+  $('secretTarget').textContent = `${notice.targetName} の手札`;
+  $('secretCard').innerHTML = `<div><strong>${notice.card.value}</strong><span>${escape(notice.card.name)}</span><p>${escape(notice.card.effect)}</p></div>`;
+  if ($('secretDialog').open) $('secretDialog').close();
+  $('secretDialog').showModal();
+}
+
+function renderRemainingCounts() {
+  const seen = {};
+  for (const player of state?.players || []) for (const card of player.played) seen[card.value] = (seen[card.value] || 0) + 1;
+  $('remainingGrid').innerHTML = Object.entries(cardDefs).map(([value, def]) => {
+    const remaining = Math.max(0, def.count - (seen[value] || 0));
+    return `<div class="count-card"><div class="count-name">${value}・${escape(def.name)}</div><strong>${remaining}</strong><small>全${def.count}枚 / 公開${seen[value] || 0}枚</small></div>`;
+  }).join('');
+}
+
 document.querySelectorAll('.tab').forEach((tab) => tab.onclick = () => {
   document.querySelectorAll('.tab').forEach((t)=>t.classList.toggle('active',t===tab));
   $('publicLog').classList.toggle('hidden',tab.dataset.tab!=='public'); $('privateLog').classList.toggle('hidden',tab.dataset.tab!=='private');
 });
 const rulesDialog = $('rulesDialog'); $('rulesButton').onclick = () => rulesDialog.showModal(); $('closeRules').onclick = () => rulesDialog.close();
-fetch('/api/cards').then((r)=>r.json()).then((defs) => { $('cardGuide').innerHTML = Object.entries(defs).map(([value,d])=>`<div class="guide-row"><strong>${value}・${escape(d.name)} ×${d.count}</strong><p>${escape(d.effect)}</p></div>`).join(''); });
+const remainingDialog = $('remainingDialog'); $('remainingButton').onclick = () => { renderRemainingCounts(); remainingDialog.showModal(); }; $('closeRemaining').onclick = () => remainingDialog.close();
+$('closeSecret').onclick = () => $('secretDialog').close();
+fetch('/api/cards').then((r)=>r.json()).then((defs) => { cardDefs = defs; $('cardGuide').innerHTML = Object.entries(defs).map(([value,d])=>`<div class="guide-row"><strong>${value}・${escape(d.name)} ×${d.count}</strong><p>${escape(d.effect)}</p></div>`).join(''); });
+renderColorPicker();
 
 $('accessForm').onsubmit = async (event) => {
   event.preventDefault();

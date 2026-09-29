@@ -81,7 +81,7 @@ function createAppServer(options = {}) {
     socket.on('createRoom', (data, ack) => reply(ack, () => {
       requireAuthorized(socket);
       const roomCode = code();
-      const player = makePlayer(cleanName(data?.name), socket.id);
+      const player = makePlayer(cleanName(data?.name), socket.id, undefined, data?.color);
       const room = new GameRoom(roomCode, player, { targetScore: Number(data?.targetScore) || 3 });
       rooms.set(roomCode, room);
       socket.data = { roomCode, sessionId: player.sessionId };
@@ -96,7 +96,7 @@ function createAppServer(options = {}) {
       const roomCode = String(data?.roomCode || '').trim().toUpperCase();
       const room = rooms.get(roomCode);
       if (!room) throw new Error('ルームが見つかりません。');
-      const player = makePlayer(cleanName(data?.name), socket.id);
+      const player = makePlayer(cleanName(data?.name), socket.id, undefined, data?.color);
       room.addPlayer(player);
       socket.data = { roomCode, sessionId: player.sessionId };
       socket.join(roomCode);

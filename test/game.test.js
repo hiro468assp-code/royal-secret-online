@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { GameRoom, makePlayer, CARD_DEFS } = require('../game');
+const { GameRoom, makePlayer, CARD_DEFS, PLAYER_COLORS } = require('../game');
 
 const card = (value, id = `${value}-${Math.random()}`) => ({ id, value, name: CARD_DEFS[value].name, effect: CARD_DEFS[value].effect });
 function roomWith(count = 2) {
@@ -49,7 +49,10 @@ test('道化の確認結果は使用者だけに見える', () => {
   const { room, actor, target } = turnRoom([2, 4], [8]);
   playTarget(room, actor, target, 'a-0');
   assert.match(room.publicState(actor.sessionId).privateLog.at(-1).text, /姫（8）/);
+  assert.equal(room.publicState(actor.sessionId).secretNotice.card.value, 8);
+  assert.equal(room.publicState(actor.sessionId).secretNotice.targetName, target.name);
   assert.equal(room.publicState(target.sessionId).privateLog.some((l) => /姫（8）/.test(l.text)), false);
+  assert.equal(room.publicState(target.sessionId).secretNotice, null);
   assert.equal(room.publicLog.some((l) => /姫（8）/.test(l.text)), false);
 });
 
@@ -161,4 +164,12 @@ test('タイトルへ戻ると待機ルームから即退出しホストが移�
   assert.equal(room.players.length, 1);
   assert.equal(room.players[0].id, players[1].id);
   assert.equal(room.hostSessionId, players[1].sessionId);
+});
+
+test('プレイヤー色は許可された10色だけを使用する', () => {
+  const selected = makePlayer('色付き', 'socket', 'session', PLAYER_COLORS[7]);
+  const invalid = makePlayer('不正色', 'socket', 'session', 'red;display:none');
+  assert.equal(selected.color, PLAYER_COLORS[7]);
+  assert.equal(invalid.color, PLAYER_COLORS[0]);
+  assert.equal(PLAYER_COLORS.length, 10);
 });

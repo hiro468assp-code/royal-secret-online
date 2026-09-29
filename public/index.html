@@ -39,6 +39,7 @@
       </div>
       <div class="entry-card">
         <label>あなたの名前<input id="nameInput" maxlength="16" autocomplete="nickname" placeholder="例：アキラ"></label>
+        <fieldset class="color-field"><legend>名前の色</legend><div id="colorPicker" class="color-picker" role="radiogroup" aria-label="名前の色"></div></fieldset>
         <div class="entry-grid">
           <button id="createButton" class="primary">新しいルームを作る</button>
           <div class="divider"><span>または</span></div>
@@ -53,7 +54,7 @@
       <div class="roombar panel">
         <div><span class="label">ROOM</span><button id="copyCode" class="room-code" title="コピー"></button></div>
         <div class="status-center"><span id="phaseBadge" class="badge"></span><strong id="turnStatus"></strong></div>
-        <div class="deck"><span class="label">山札</span><strong id="deckCount">—</strong></div>
+        <div class="deck"><span class="label">山札</span><strong id="deckCount">—</strong><button id="remainingButton" class="count-button">残り枚数</button></div>
       </div>
 
       <div class="layout">
@@ -76,6 +77,19 @@
     <p class="eyebrow">HOW TO PLAY</p><h2>遊び方</h2>
     <p>手番に1枚引き、2枚のうち1枚を公開して効果を使います。最後の生存者、または山札切れ時に最大の手札を持つ人が1点。規定点を先取すると勝利です。</p>
     <div id="cardGuide" class="card-guide"></div>
+  </dialog>
+  <dialog id="remainingDialog" class="info-dialog">
+    <button id="closeRemaining" class="dialog-close" aria-label="閉じる">×</button>
+    <p class="eyebrow">CARD COUNT</p><h2>未公開カード予測</h2>
+    <p class="dialog-note">場に公開されたカードを全16枚から差し引いた枚数です。山札・手札・除外札の内訳は含みません。</p>
+    <div id="remainingGrid" class="remaining-grid"></div>
+  </dialog>
+  <dialog id="secretDialog" class="secret-dialog">
+    <button id="closeSecret" class="dialog-close" aria-label="閉じる">×</button>
+    <p class="eyebrow">FOR YOUR EYES ONLY</p><h2 id="secretTitle">道化の確認結果</h2>
+    <p id="secretTarget" class="secret-target"></p>
+    <div id="secretCard" class="reveal-card"></div>
+    <p class="secret-warning">この情報はあなたにだけ表示されています。</p>
   </dialog>
   <div id="toast" class="toast" aria-live="polite"></div>
   <script src="/socket.io/socket.io.js"></script>

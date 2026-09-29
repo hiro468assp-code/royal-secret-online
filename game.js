@@ -11,6 +11,8 @@ const CARD_DEFS = {
   8: { name: '姫', count: 1, effect: '通常プレイまたは魔術師で捨てると脱落する。' }
 };
 
+const PLAYER_COLORS = ['#e15b64', '#f28e2b', '#edc948', '#59a14f', '#2a9d8f', '#4e79a7', '#7b6fd0', '#b07aa1', '#d37295', '#9c755f'];
+
 function makeDeck() {
   const cards = [];
   for (const [value, def] of Object.entries(CARD_DEFS)) {
@@ -46,6 +48,7 @@ class GameRoom {
     this.pendingAction = null;
     this.publicLog = [];
     this.privateLogs = new Map();
+    this.privateNotices = new Map();
     this.logSeq = 0;
     this.random = options.random || Math.random;
   }
@@ -82,6 +85,7 @@ class GameRoom {
     this.turnNumber = 0;
     this.publicLog = [];
     this.privateLogs = new Map();
+    this.privateNotices = new Map();
     this.logSeq = 0;
     this.deck = shuffle(makeDeck(), this.random);
     this.removedCard = this.deck.pop();
@@ -170,6 +174,13 @@ class GameRoom {
       } else this.addPublic(`${actor.name} の予想「${guess}」は外れました。`);
     } else if (card.value === 2) {
       this.addPrivate(actor, `${target.name} の手札は ${this.cardLabel(target.hand[0])} です。`);
+      this.privateNotices.set(actor.sessionId, {
+        id: crypto.randomUUID(),
+        type: 'jester',
+        title: '道化の確認結果',
+        targetName: target.name,
+        card: target.hand[0]
+      });
       this.addPublic(`${actor.name} が ${target.name} の手札を秘密に確認しました。`);
     } else if (card.value === 3) {
       const own = actor.hand[0];
@@ -382,6 +393,7 @@ class GameRoom {
       players: this.players.map((p) => ({
         id: p.id,
         name: p.name,
+        color: p.color,
         score: p.score,
         alive: p.alive,
         protected: p.protected,
@@ -389,7 +401,8 @@ class GameRoom {
         played: p.played
       })),
       publicLog: this.publicLog.slice(-80),
-      privateLog: (this.privateLogs.get(forSessionId) || []).slice(-30)
+      privateLog: (this.privateLogs.get(forSessionId) || []).slice(-30),
+      secretNotice: this.privateNotices.get(forSessionId) || null
     };
   }
 
@@ -404,8 +417,9 @@ class GameRoom {
   }
 }
 
-function makePlayer(name, socketId, sessionId = crypto.randomUUID()) {
-  return { id: crypto.randomUUID(), sessionId, socketId, name, connected: true, score: 0, alive: false, protected: false, hand: [], played: [] };
+function makePlayer(name, socketId, sessionId = crypto.randomUUID(), color = PLAYER_COLORS[0]) {
+  const safeColor = PLAYER_COLORS.includes(color) ? color : PLAYER_COLORS[0];
+  return { id: crypto.randomUUID(), sessionId, socketId, name, color: safeColor, connected: true, score: 0, alive: false, protected: false, hand: [], played: [] };
 }
 
-module.exports = { CARD_DEFS, GameRoom, makeDeck, makePlayer, shuffle };
+module.exports = { CARD_DEFS, PLAYER_COLORS, GameRoom, makeDeck, makePlayer, shuffle };
