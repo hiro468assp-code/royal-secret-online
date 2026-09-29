@@ -38,3 +38,27 @@ dialog { width:min(760px,calc(100% - 28px)); max-height:88vh; overflow:auto; bor
 @media(max-width:850px){ main{padding:12px}.brand{min-height:62px}.home{grid-template-columns:1fr;padding:28px;gap:25px}.hero-copy h2{font-size:41px}.layout{grid-template-columns:1fr}.log-zone{position:relative;max-height:360px;min-height:330px}.roombar{grid-template-columns:1fr 1.4fr .6fr}.players{grid-template-columns:repeat(2,minmax(0,1fr))}.effect-form{grid-template-columns:1fr}.hand-area{min-height:225px}.card{min-height:220px;padding:14px}.card-effect{left:14px;right:14px;bottom:14px}.card-name{font-size:20px}.card-value{font-size:35px}.card-guide{grid-template-columns:1fr}}
 @media(max-width:480px){ .brand{gap:8px}.brand h1{font-size:17px;letter-spacing:.06em}.brand .eyebrow{font-size:7px}.crest{width:34px;height:34px}.header-actions{gap:4px}.brand .ghost{padding:7px 8px;font-size:10px;white-space:nowrap}.home{padding:21px}.hero-copy h2{font-size:35px}.roombar{padding:10px}.status-center strong{font-size:12px}.players{grid-template-columns:1fr 1fr;gap:7px}.player{padding:9px;min-height:125px}.player-name{font-size:12px}.lobby-controls{display:grid;grid-template-columns:auto auto;justify-content:center}.lobby-controls .action-copy{grid-column:1/-1;width:100%}.hand-area{gap:8px}.card{width:46vw;min-height:205px}.card-effect{font-size:10px}.action-panel{padding:13px}.log-zone{min-height:300px}.remaining-grid{grid-template-columns:repeat(2,1fr)}.color-choice{width:25px;height:25px}}
 .hand-area:empty { min-height:0; padding:0; }
+
+/* Card artwork: replace the matching files in public/assets/cards to reskin the deck. */
+.card{min-height:300px;padding:0;color:#fff;background:#241c2b;isolation:isolate}
+.card::after{display:none}
+.card-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
+.card-shade{position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(8,6,12,.04) 35%,rgba(8,6,12,.33) 55%,rgba(8,6,12,.96) 100%)}
+.card-top{padding:12px;align-items:start;text-shadow:0 2px 5px #000}
+.card-value,.card-name{padding:2px 7px;border-radius:7px;background:rgba(10,7,14,.72);box-shadow:0 2px 10px #0006}
+.card-effect{left:12px;right:12px;bottom:12px;padding:9px 10px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:rgba(13,9,17,.82);color:#fff;text-shadow:0 1px 2px #000;backdrop-filter:blur(4px)}
+.mini-card{position:relative;isolation:isolate;overflow:hidden;color:#fff;background:#241c2b;text-shadow:0 1px 3px #000}
+.mini-card::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,transparent 20%,rgba(5,3,8,.88))}
+.mini-card-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-2}
+.mini-card strong,.mini-card span{position:relative}
+.guide-row{display:flex;align-items:center;gap:11px;min-height:92px}
+.guide-art{width:54px;height:78px;flex:0 0 auto;border-radius:5px;object-fit:cover;box-shadow:0 4px 10px #0006}
+.count-card{display:flex;align-items:center;gap:10px;padding:8px;text-align:left}
+.count-card-art{width:52px;height:76px;flex:0 0 auto;border-radius:5px;object-fit:cover}
+.count-card strong{line-height:1.05}
+.reveal-card{position:relative;isolation:isolate;overflow:hidden;padding:0;color:#fff;background:#241c2b;text-shadow:0 2px 5px #000}
+.reveal-card .card-art{z-index:-2}
+.reveal-card .card-shade{z-index:-1;background:linear-gradient(180deg,rgba(7,5,10,.04),rgba(7,5,10,.25) 46%,rgba(7,5,10,.96))}
+.reveal-content{position:relative;align-self:end;width:100%;padding:18px 12px 14px;display:grid;gap:4px}
+.reveal-content strong{font-size:56px}.reveal-content span{font-size:24px}.reveal-content p{margin:0}
+@media(max-width:480px){.card{min-height:245px}.guide-art{width:48px;height:70px}.count-card-art{width:46px;height:68px}}

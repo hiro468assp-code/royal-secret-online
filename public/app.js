@@ -10,6 +10,16 @@ let selectedColor = localStorage.getItem('royal-secret-color');
 if (!playerColors.includes(selectedColor)) selectedColor = playerColors[5];
 let cardDefs = {};
 let lastSecretNoticeId = null;
+const cardArtPaths = {
+  1: '/assets/cards/soldier.webp',
+  2: '/assets/cards/jester.webp',
+  3: '/assets/cards/knight.webp',
+  4: '/assets/cards/priest.webp',
+  5: '/assets/cards/wizard.webp',
+  6: '/assets/cards/general.webp',
+  7: '/assets/cards/minister.webp',
+  8: '/assets/cards/princess.webp'
+};
 
 const storageKey = 'royal-secret-session';
 let session = JSON.parse(localStorage.getItem(storageKey) || 'null');
@@ -37,6 +47,9 @@ function showAccess() { $('accessView').classList.remove('hidden'); $('homeView'
 function showHome() { $('accessView').classList.add('hidden'); $('homeView').classList.remove('hidden'); $('gameView').classList.add('hidden'); $('titleButton').classList.add('hidden'); }
 function enterGame() { $('accessView').classList.add('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); $('titleButton').classList.remove('hidden'); }
 function escape(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
+function cardArt(value, name, className = 'card-art') {
+  return `<img class="${className}" src="${cardArtPaths[value]}" alt="${escape(name)}のイラスト" loading="lazy" draggable="false">`;
+}
 
 function renderColorPicker() {
   $('colorPicker').innerHTML = playerColors.map((color, index) => `<button type="button" class="color-choice ${color === selectedColor ? 'selected' : ''}" style="--choice:${color}" data-color="${color}" role="radio" aria-checked="${color === selectedColor}" aria-label="色 ${index + 1}"></button>`).join('');
@@ -97,7 +110,7 @@ function renderPlayers() {
         ${state.phase !== 'lobby' ? `<span class="tag ${p.alive ? '' : 'out'}">${p.alive ? '生存' : '脱落'}</span>` : ''}
         ${p.protected ? '<span class="tag safe">加護</span>' : ''}${!p.connected ? '<span class="tag offline">切断中</span>' : ''}
       </div>
-      <div class="history">${p.played.length ? p.played.map((c) => `<div class="mini-card ${c.reason === 'magic' ? 'magic' : ''} ${c.reason === 'eliminated' ? 'revealed' : ''}"><strong>${c.value}</strong><span>${escape(c.name)}</span></div>`).join('') : '<span class="empty">公開札なし</span>'}</div>
+      <div class="history">${p.played.length ? p.played.map((c) => `<div class="mini-card ${c.reason === 'magic' ? 'magic' : ''} ${c.reason === 'eliminated' ? 'revealed' : ''}">${cardArt(c.value, c.name, 'mini-card-art')}<strong>${c.value}</strong><span>${escape(c.name)}</span></div>`).join('') : '<span class="empty">公開札なし</span>'}</div>
     </article>`).join('');
 }
 
@@ -157,7 +170,7 @@ function renderTargetForm(panel) {
 
 function renderHand() {
   const canPlay = state.phase === 'turn' && state.currentPlayerId === state.viewerId;
-  $('handArea').innerHTML = state.hand.map((c) => `<button class="card ${c.id === selectedCardId ? 'selected' : ''}" data-card-id="${c.id}" data-value="${c.value}" ${canPlay ? '' : 'disabled'}><div class="card-top"><span class="card-value">${c.value}</span><span class="card-name">${escape(c.name)}</span></div><div class="card-effect">${escape(c.effect)}</div></button>`).join('');
+  $('handArea').innerHTML = state.hand.map((c) => `<button class="card ${c.id === selectedCardId ? 'selected' : ''}" data-card-id="${c.id}" data-value="${c.value}" ${canPlay ? '' : 'disabled'}>${cardArt(c.value, c.name)}<div class="card-shade"></div><div class="card-top"><span class="card-value">${c.value}</span><span class="card-name">${escape(c.name)}</span></div><div class="card-effect">${escape(c.effect)}</div></button>`).join('');
   document.querySelectorAll('[data-card-id]').forEach((el) => el.onclick = () => { selectedCardId = el.dataset.cardId; renderAction(); renderHand(); });
 }
 
@@ -171,7 +184,7 @@ function showSecretNotice(notice) {
   lastSecretNoticeId = notice.id;
   $('secretTitle').textContent = notice.title;
   $('secretTarget').textContent = `${notice.targetName} の手札`;
-  $('secretCard').innerHTML = `<div><strong>${notice.card.value}</strong><span>${escape(notice.card.name)}</span><p>${escape(notice.card.effect)}</p></div>`;
+  $('secretCard').innerHTML = `${cardArt(notice.card.value, notice.card.name)}<div class="card-shade"></div><div class="reveal-content"><strong>${notice.card.value}</strong><span>${escape(notice.card.name)}</span><p>${escape(notice.card.effect)}</p></div>`;
   if ($('secretDialog').open) $('secretDialog').close();
   $('secretDialog').showModal();
 }
@@ -181,7 +194,7 @@ function renderRemainingCounts() {
   for (const player of state?.players || []) for (const card of player.played) seen[card.value] = (seen[card.value] || 0) + 1;
   $('remainingGrid').innerHTML = Object.entries(cardDefs).map(([value, def]) => {
     const remaining = Math.max(0, def.count - (seen[value] || 0));
-    return `<div class="count-card"><div class="count-name">${value}・${escape(def.name)}</div><strong>${remaining}</strong><small>全${def.count}枚 / 公開${seen[value] || 0}枚</small></div>`;
+    return `<div class="count-card">${cardArt(value, def.name, 'count-card-art')}<div><div class="count-name">${value}・${escape(def.name)}</div><strong>${remaining}</strong><small>全${def.count}枚 / 公開${seen[value] || 0}枚</small></div></div>`;
   }).join('');
 }
 
@@ -192,7 +205,7 @@ document.querySelectorAll('.tab').forEach((tab) => tab.onclick = () => {
 const rulesDialog = $('rulesDialog'); $('rulesButton').onclick = () => rulesDialog.showModal(); $('closeRules').onclick = () => rulesDialog.close();
 const remainingDialog = $('remainingDialog'); $('remainingButton').onclick = () => { renderRemainingCounts(); remainingDialog.showModal(); }; $('closeRemaining').onclick = () => remainingDialog.close();
 $('closeSecret').onclick = () => $('secretDialog').close();
-fetch('/api/cards').then((r)=>r.json()).then((defs) => { cardDefs = defs; $('cardGuide').innerHTML = Object.entries(defs).map(([value,d])=>`<div class="guide-row"><strong>${value}・${escape(d.name)} ×${d.count}</strong><p>${escape(d.effect)}</p></div>`).join(''); });
+fetch('/api/cards').then((r)=>r.json()).then((defs) => { cardDefs = defs; $('cardGuide').innerHTML = Object.entries(defs).map(([value,d])=>`<div class="guide-row">${cardArt(value, d.name, 'guide-art')}<div><strong>${value}・${escape(d.name)} ×${d.count}</strong><p>${escape(d.effect)}</p></div></div>`).join(''); });
 renderColorPicker();
 
 $('accessForm').onsubmit = async (event) => {
