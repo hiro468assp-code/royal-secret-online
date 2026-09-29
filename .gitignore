@@ -1,0 +1,7 @@
+node_modules/
+.pnpm-store/
+AGENTS.md
+.env
+npm-debug.log*
+coverage/
+.DS_Store

@@ -1,0 +1,129 @@
+const socket = io();
+const $ = (id) => document.getElementById(id);
+let state = null;
+let selectedCardId = null;
+let toastTimer;
+
+const storageKey = 'royal-secret-session';
+let session = JSON.parse(localStorage.getItem(storageKey) || 'null');
+
+function call(event, data = {}) {
+  return new Promise((resolve) => socket.emit(event, data, (result) => {
+    if (!result?.ok) showToast(result?.error || '操作に失敗しました。');
+    resolve(result);
+  }));
+}
+
+function remember(result) {
+  if (result?.ok) {
+    session = { roomCode: result.roomCode, sessionId: result.sessionId };
+    localStorage.setItem(storageKey, JSON.stringify(session));
+  }
+}
+
+function showToast(text) {
+  const el = $('toast'); el.textContent = text; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+function enterGame() { $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); }
+function escape(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
+
+$('createButton').onclick = async () => {
+  const result = await call('createRoom', { name: $('nameInput').value, targetScore: 3 });
+  remember(result); if (result?.ok) enterGame();
+};
+$('joinButton').onclick = async () => {
+  const result = await call('joinRoom', { name: $('nameInput').value, roomCode: $('codeInput').value });
+  remember(result); if (result?.ok) enterGame();
+};
+$('codeInput').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, ''); });
+$('copyCode').onclick = async () => { await navigator.clipboard.writeText(state.code); showToast('ルームコードをコピーしました'); };
+$('leaveButton').onclick = () => { localStorage.removeItem(storageKey); location.reload(); };
+
+socket.on('connect', async () => {
+  if (session?.roomCode && session?.sessionId) {
+    const result = await call('reconnectRoom', session);
+    if (result?.ok) enterGame(); else { session = null; localStorage.removeItem(storageKey); }
+  }
+});
+socket.on('state', (next) => { state = next; selectedCardId = state.hand.some((c) => c.id === selectedCardId) ? selectedCardId : null; enterGame(); render(); });
+
+function render() {
+  $('copyCode').textContent = state.code;
+  $('deckCount').textContent = state.phase === 'lobby' ? '—' : state.deckCount;
+  const labels = { lobby:'待機中', turn:'対戦中', round_over:'ラウンド終了', match_over:'マッチ終了' };
+  $('phaseBadge').textContent = labels[state.phase] || state.phase;
+  const current = state.players.find((p) => p.id === state.currentPlayerId);
+  $('turnStatus').textContent = state.phase === 'turn' ? (current?.id === state.viewerId ? 'あなたの手番です' : `${current?.name || ''} の手番`) : `先取 ${state.targetScore}点`;
+  renderPlayers(); renderAction(); renderHand(); renderLogs();
+}
+
+function renderPlayers() {
+  $('players').innerHTML = state.players.map((p) => `
+    <article class="player ${p.id === state.currentPlayerId ? 'current' : ''} ${p.id === state.viewerId ? 'me' : ''}">
+      <div class="player-head"><span class="avatar">${escape(p.name.charAt(0))}</span><span class="player-name">${escape(p.name)}</span><span class="score">${p.score} pt</span></div>
+      <div class="tags">
+        ${state.phase !== 'lobby' ? `<span class="tag ${p.alive ? '' : 'out'}">${p.alive ? '生存' : '脱落'}</span>` : ''}
+        ${p.protected ? '<span class="tag safe">加護</span>' : ''}${!p.connected ? '<span class="tag offline">切断中</span>' : ''}
+      </div>
+      <div class="history">${p.played.length ? p.played.map((c) => `<div class="mini-card ${c.reason === 'magic' ? 'magic' : ''} ${c.reason === 'eliminated' ? 'revealed' : ''}"><strong>${c.value}</strong><span>${escape(c.name)}</span></div>`).join('') : '<span class="empty">公開札なし</span>'}</div>
+    </article>`).join('');
+}
+
+function renderAction() {
+  const panel = $('actionPanel');
+  if (state.phase === 'lobby') {
+    panel.innerHTML = `<div class="lobby-controls"><div class="action-copy"><h3>${state.players.length}/5人が参加中</h3><p>${state.isHost ? '勝利点を決めて開始してください。' : 'ホストの開始を待っています。'}</p></div>
+      ${state.isHost ? `<label>勝利点<select id="scoreSelect">${[1,2,3,4,5,6,7,8,9,10].map((n) => `<option ${n === state.targetScore ? 'selected' : ''}>${n}</option>`).join('')}</select></label><button id="startButton" class="primary" ${state.players.filter((p)=>p.connected).length < 2 ? 'disabled' : ''}>対戦を開始</button>` : ''}</div>`;
+    if (state.isHost) {
+      $('scoreSelect').onchange = (e) => call('setScore', { targetScore: Number(e.target.value) });
+      $('startButton').onclick = () => call('startMatch');
+    }
+  } else if (state.phase === 'round_over') {
+    panel.innerHTML = `<div class="action-copy"><h3>ラウンド終了</h3><p>${state.isHost ? '準備ができたら次のラウンドへ。' : 'ホストの操作を待っています。'}</p>${state.isHost ? '<button id="nextButton" class="primary">次のラウンド</button>' : ''}</div>`;
+    if (state.isHost) $('nextButton').onclick = () => call('nextRound');
+  } else if (state.phase === 'match_over') {
+    const top = Math.max(...state.players.map((p) => p.score)); const winners = state.players.filter((p)=>p.score===top).map((p)=>p.name).join('・');
+    panel.innerHTML = `<div class="action-copy"><h3>♛ ${escape(winners)} の勝利</h3><p>マッチが終了しました。</p>${state.isHost ? '<button id="resetButton" class="primary">新しいマッチ</button>' : ''}</div>`;
+    if (state.isHost) $('resetButton').onclick = () => call('resetMatch');
+  } else if (state.currentPlayerId !== state.viewerId) {
+    panel.innerHTML = '<div class="action-copy"><h3>相手の手番です</h3><p>公開ログを見ながら、次の一手を考えましょう。</p></div>';
+  } else if (!selectedCardId) {
+    panel.innerHTML = '<div class="action-copy"><h3>出すカードを選択</h3><p>手札のどちらかをタップしてください。</p></div>';
+  } else renderEffectForm(panel);
+}
+
+function renderEffectForm(panel) {
+  const card = state.hand.find((c) => c.id === selectedCardId);
+  const needsTarget = [1,2,3,6].includes(card.value) && state.validTargets.length;
+  const targets = state.players.filter((p) => state.validTargets.includes(p.id));
+  panel.innerHTML = `<form id="playForm" class="effect-form">
+    <div class="action-copy"><h3>${escape(card.name)}を出す</h3><p>${escape(card.effect)}</p></div>
+    ${needsTarget ? `<label>対象<select id="targetSelect">${targets.map((p)=>`<option value="${p.id}">${escape(p.name)}</option>`).join('')}</select></label>` : '<div></div>'}
+    ${card.value === 1 && needsTarget ? `<label>予想<select id="guessSelect">${[1,2,3,4,5,6,7,8].map((n)=>`<option>${n}</option>`).join('')}</select></label>` : ''}
+    <button class="primary" type="submit">このカードを出す</button></form>`;
+  $('playForm').onsubmit = async (e) => {
+    e.preventDefault(); const button = e.currentTarget.querySelector('button'); button.disabled = true;
+    const result = await call('playCard', { cardId:card.id, targetId:$('targetSelect')?.value, guess:$('guessSelect')?.value });
+    if (!result?.ok) button.disabled = false;
+  };
+}
+
+function renderHand() {
+  const canPlay = state.phase === 'turn' && state.currentPlayerId === state.viewerId;
+  $('handArea').innerHTML = state.hand.map((c) => `<button class="card ${c.id === selectedCardId ? 'selected' : ''}" data-card-id="${c.id}" data-value="${c.value}" ${canPlay ? '' : 'disabled'}><div class="card-top"><span class="card-value">${c.value}</span><span class="card-name">${escape(c.name)}</span></div><div class="card-effect">${escape(c.effect)}</div></button>`).join('');
+  document.querySelectorAll('[data-card-id]').forEach((el) => el.onclick = () => { selectedCardId = el.dataset.cardId; renderAction(); renderHand(); });
+}
+
+function renderLogs() {
+  const fill = (el, logs, empty) => { el.innerHTML = logs.length ? logs.slice().reverse().map((l)=>`<div class="log-entry">${escape(l.text)}</div>`).join('') : `<div class="empty">${empty}</div>`; };
+  fill($('publicLog'), state.publicLog, 'まだログはありません'); fill($('privateLog'), state.privateLog, '秘密の情報はここに表示されます');
+}
+
+document.querySelectorAll('.tab').forEach((tab) => tab.onclick = () => {
+  document.querySelectorAll('.tab').forEach((t)=>t.classList.toggle('active',t===tab));
+  $('publicLog').classList.toggle('hidden',tab.dataset.tab!=='public'); $('privateLog').classList.toggle('hidden',tab.dataset.tab!=='private');
+});
+const rulesDialog = $('rulesDialog'); $('rulesButton').onclick = () => rulesDialog.showModal(); $('closeRules').onclick = () => rulesDialog.close();
+fetch('/api/cards').then((r)=>r.json()).then((defs) => { $('cardGuide').innerHTML = Object.entries(defs).map(([value,d])=>`<div class="guide-row"><strong>${value}・${escape(d.name)} ×${d.count}</strong><p>${escape(d.effect)}</p></div>`).join(''); });

@@ -1,0 +1,367 @@
+const crypto = require('node:crypto');
+
+const CARD_DEFS = {
+  1: { name: '兵士', count: 5, effect: '相手の手札の数字を予想し、的中すれば脱落させる。' },
+  2: { name: '道化', count: 2, effect: '相手の手札を自分だけ確認する。' },
+  3: { name: '騎士', count: 2, effect: '相手と手札を秘密比較し、小さい方が脱落する。' },
+  4: { name: '僧侶', count: 2, effect: '次の自分の手番開始まで、他者の効果から守られる。' },
+  5: { name: '魔術師', count: 2, effect: '残りの手札を公開して捨て、新しい1枚を引く。' },
+  6: { name: '将軍', count: 1, effect: '相手と残りの手札を秘密に交換する。' },
+  7: { name: '大臣', count: 1, effect: '所持中、ドロー後の合計が12以上なら即脱落する。' },
+  8: { name: '姫', count: 1, effect: '通常プレイまたは魔術師で捨てると脱落する。' }
+};
+
+function makeDeck() {
+  const cards = [];
+  for (const [value, def] of Object.entries(CARD_DEFS)) {
+    for (let i = 0; i < def.count; i += 1) {
+      cards.push({ id: crypto.randomUUID(), value: Number(value), name: def.name, effect: def.effect });
+    }
+  }
+  return cards;
+}
+
+function shuffle(items, random = Math.random) {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+class GameRoom {
+  constructor(code, host, options = {}) {
+    this.code = code;
+    this.players = [host];
+    this.hostSessionId = host.sessionId;
+    const requestedScore = Number(options.targetScore);
+    this.targetScore = Number.isInteger(requestedScore) && requestedScore >= 1 && requestedScore <= 10 ? requestedScore : 3;
+    this.phase = 'lobby';
+    this.roundNumber = 0;
+    this.turnNumber = 0;
+    this.currentPlayerId = null;
+    this.deck = [];
+    this.removedCard = null;
+    this.publicLog = [];
+    this.privateLogs = new Map();
+    this.logSeq = 0;
+    this.random = options.random || Math.random;
+  }
+
+  addPlayer(player) {
+    if (this.phase !== 'lobby') throw new Error('対戦開始後は参加できません。');
+    if (this.players.length >= 5) throw new Error('このルームは満員です。');
+    if (this.players.some((p) => p.name.toLowerCase() === player.name.toLowerCase())) throw new Error('同じ名前は使えません。');
+    this.players.push(player);
+    this.addPublic(`${player.name} が参加しました。`);
+  }
+
+  setTargetScore(sessionId, score) {
+    if (sessionId !== this.hostSessionId || this.phase !== 'lobby') throw new Error('ホストだけが変更できます。');
+    const parsed = Number(score);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) throw new Error('勝利点は1〜10で指定してください。');
+    this.targetScore = parsed;
+  }
+
+  startMatch(sessionId) {
+    if (sessionId !== this.hostSessionId) throw new Error('ホストだけが開始できます。');
+    if (this.phase !== 'lobby') throw new Error('マッチは待機画面から開始してください。');
+    if (this.players.filter((p) => p.connected).length < 2) throw new Error('開始には2人以上必要です。');
+    for (const p of this.players) p.score = 0;
+    this.startRound(sessionId, true);
+  }
+
+  startRound(sessionId, first = false) {
+    if (sessionId !== this.hostSessionId) throw new Error('ホストだけがラウンドを開始できます。');
+    if (!first && this.phase !== 'round_over') throw new Error('今は次のラウンドを開始できません。');
+    const active = this.players.filter((p) => p.connected);
+    if (active.length < 2) throw new Error('接続中のプレイヤーが2人必要です。');
+    this.roundNumber += 1;
+    this.turnNumber = 0;
+    this.publicLog = [];
+    this.privateLogs = new Map();
+    this.logSeq = 0;
+    this.deck = shuffle(makeDeck(), this.random);
+    this.removedCard = this.deck.pop();
+    for (const p of this.players) {
+      p.alive = p.connected;
+      p.protected = false;
+      p.hand = p.alive ? [this.deck.pop()] : [];
+      p.played = [];
+    }
+    const starter = active[Math.floor(this.random() * active.length)];
+    this.currentPlayerId = starter.id;
+    this.phase = 'turn';
+    this.addPublic(`第${this.roundNumber}ラウンド開始。${starter.name} が先手です。`);
+    this.beginTurn();
+  }
+
+  beginTurn() {
+    const player = this.currentPlayer();
+    if (!player || !player.alive) return this.advanceTurn();
+    if (player.protected) {
+      player.protected = false;
+      this.addPublic(`${player.name} の僧侶の加護が解けました。`);
+    }
+    this.turnNumber += 1;
+    const drawn = this.deck.pop();
+    if (!drawn) return this.finishShowdown();
+    player.hand.push(drawn);
+    this.addPublic(`${player.name} の手番です（山札 ${this.deck.length}枚）。`);
+    if (player.hand.some((c) => c.value === 7) && player.hand.reduce((sum, c) => sum + c.value, 0) >= 12) {
+      this.addPublic(`${player.name} は大臣の条件により即座に脱落しました。`);
+      this.eliminate(player, '大臣');
+      return this.afterAction();
+    }
+  }
+
+  validTargets(actor) {
+    return this.players.filter((p) => p.alive && p.id !== actor.id && !p.protected);
+  }
+
+  play(sessionId, payload) {
+    if (this.phase !== 'turn') throw new Error('現在はカードを出せません。');
+    const actor = this.currentPlayer();
+    if (!actor || actor.sessionId !== sessionId) throw new Error('あなたの手番ではありません。');
+    const index = actor.hand.findIndex((c) => c.id === payload.cardId);
+    if (index < 0) throw new Error('そのカードは手札にありません。');
+    const card = actor.hand[index];
+    const targets = this.validTargets(actor);
+    let target = null;
+    if ([1, 2, 3, 6].includes(card.value) && targets.length) {
+      target = targets.find((p) => p.id === payload.targetId);
+      if (!target) throw new Error('有効な対象を選んでください。');
+    }
+    if (card.value === 1 && targets.length) {
+      const guess = Number(payload.guess);
+      if (!Number.isInteger(guess) || guess < 1 || guess > 8) throw new Error('予想は1〜8で指定してください。');
+    }
+    actor.hand.splice(index, 1);
+    actor.played.push({ ...card, reason: 'play', order: this.turnNumber });
+    this.addPublic(`${actor.name} が ${card.name}（${card.value}）を出しました。`);
+    this.resolveCard(actor, card, target, Number(payload.guess));
+    this.afterAction();
+  }
+
+  resolveCard(actor, card, target, guess) {
+    if ([1, 2, 3, 6].includes(card.value) && !target) {
+      this.addPublic('有効な対象がいないため、効果はありません。');
+      return;
+    }
+    if (card.value === 1) {
+      if (target.hand[0]?.value === guess) {
+        this.addPublic(`${actor.name} の予想「${guess}」は的中。${target.name} が脱落しました。`);
+        this.eliminate(target, '兵士');
+      } else this.addPublic(`${actor.name} の予想「${guess}」は外れました。`);
+    } else if (card.value === 2) {
+      this.addPrivate(actor, `${target.name} の手札は ${this.cardLabel(target.hand[0])} です。`);
+      this.addPublic(`${actor.name} が ${target.name} の手札を秘密に確認しました。`);
+    } else if (card.value === 3) {
+      const own = actor.hand[0];
+      const other = target.hand[0];
+      this.addPrivate(actor, `${target.name} と比較：あなた ${this.cardLabel(own)} / 相手 ${this.cardLabel(other)}`);
+      this.addPrivate(target, `${actor.name} と比較：あなた ${this.cardLabel(other)} / 相手 ${this.cardLabel(own)}`);
+      if (own.value < other.value) {
+        this.addPublic(`騎士の比較で ${actor.name} が脱落しました。`);
+        this.eliminate(actor, '騎士');
+      } else if (other.value < own.value) {
+        this.addPublic(`騎士の比較で ${target.name} が脱落しました。`);
+        this.eliminate(target, '騎士');
+      } else this.addPublic('騎士の比較は同値。両者とも生存します。');
+    } else if (card.value === 4) {
+      actor.protected = true;
+      this.addPublic(`${actor.name} は次の自分の手番まで僧侶に守られます。`);
+    } else if (card.value === 5) {
+      const discarded = actor.hand.shift();
+      if (discarded) {
+        actor.played.push({ ...discarded, reason: 'magic', order: this.turnNumber });
+        this.addPublic(`${actor.name} は魔術師で ${discarded.name}（${discarded.value}）を公開して捨てました。`);
+        if (discarded.value === 8) {
+          this.addPublic(`${actor.name} は姫を捨てたため脱落しました。`);
+          this.eliminate(actor, '姫');
+          return;
+        }
+      }
+      const replacement = this.deck.pop() || this.takeRemovedCard();
+      if (replacement) {
+        actor.hand.push(replacement);
+        this.addPrivate(actor, `魔術師で ${this.cardLabel(replacement)} を引きました。`);
+        this.addPublic(`${actor.name} は新しい手札を1枚引きました。`);
+      }
+    } else if (card.value === 6) {
+      const own = actor.hand[0];
+      const other = target.hand[0];
+      actor.hand[0] = other;
+      target.hand[0] = own;
+      this.addPublic(`${actor.name} と ${target.name} が手札を交換しました。`);
+      this.addPrivate(actor, `${target.name} と交換し、${this.cardLabel(other)} を受け取りました。`);
+      this.addPrivate(target, `${actor.name} と交換し、${this.cardLabel(own)} を受け取りました。`);
+    } else if (card.value === 8) {
+      this.addPublic(`${actor.name} は姫を出したため脱落しました。`);
+      this.eliminate(actor, '姫');
+    }
+  }
+
+  takeRemovedCard() {
+    const card = this.removedCard;
+    this.removedCard = null;
+    return card;
+  }
+
+  eliminate(player, reason = '効果') {
+    if (!player.alive) return;
+    player.alive = false;
+    player.protected = false;
+    while (player.hand.length) {
+      const revealed = player.hand.shift();
+      player.played.push({ ...revealed, reason: 'eliminated', order: this.turnNumber });
+      this.addPublic(`${player.name} の残り手札は ${revealed.name}（${revealed.value}）でした。`);
+    }
+    this.addPrivate(player, `${reason}により脱落しました。`);
+  }
+
+  afterAction() {
+    const alive = this.players.filter((p) => p.alive);
+    if (alive.length <= 1) return this.finishRound(alive, '最後まで生き残りました');
+    if (this.deck.length === 0) return this.finishShowdown();
+    this.advanceTurn();
+  }
+
+  advanceTurn() {
+    const currentIndex = this.players.findIndex((p) => p.id === this.currentPlayerId);
+    for (let step = 1; step <= this.players.length; step += 1) {
+      const next = this.players[(currentIndex + step) % this.players.length];
+      if (next.alive) {
+        this.currentPlayerId = next.id;
+        return this.beginTurn();
+      }
+    }
+  }
+
+  finishShowdown() {
+    const alive = this.players.filter((p) => p.alive && p.hand[0]);
+    if (!alive.length) return this.finishRound([], '生存者なし');
+    for (const p of alive) this.addPublic(`${p.name} の最終手札：${this.cardLabel(p.hand[0])}`);
+    const maxHand = Math.max(...alive.map((p) => p.hand[0].value));
+    let tied = alive.filter((p) => p.hand[0].value === maxHand);
+    if (tied.length > 1) {
+      const sums = tied.map((p) => p.played.reduce((sum, c) => sum + c.value, 0));
+      const maxSum = Math.max(...sums);
+      tied = tied.filter((p) => p.played.reduce((sum, c) => sum + c.value, 0) === maxSum);
+      this.addPublic('手札が同値のため、公開済みカードの合計で判定します。');
+    }
+    this.finishRound(tied, '山札切れの判定に勝利しました');
+  }
+
+  finishRound(winners, reason) {
+    if (!winners.length) {
+      this.phase = 'round_over';
+      this.addPublic(`ラウンド終了：${reason}。得点者はいません。`);
+      return;
+    }
+    for (const p of winners) p.score += 1;
+    this.addPublic(`${winners.map((p) => p.name).join('・')} が1点獲得：${reason}。`);
+    const matchWinners = winners.filter((p) => p.score >= this.targetScore);
+    if (matchWinners.length) {
+      this.phase = 'match_over';
+      this.addPublic(`${matchWinners.map((p) => p.name).join('・')} が規定点に到達し、マッチ勝者です！`);
+    } else this.phase = 'round_over';
+  }
+
+  disconnect(sessionId) {
+    const player = this.bySession(sessionId);
+    if (!player) return;
+    player.connected = false;
+    this.addPublic(`${player.name} の接続が切れました。60秒間再接続を待ちます。`);
+  }
+
+  expireDisconnected(sessionId) {
+    const player = this.bySession(sessionId);
+    if (!player || player.connected) return;
+    if (this.phase === 'lobby') {
+      this.players = this.players.filter((p) => p !== player);
+    } else if (player.alive && ['turn'].includes(this.phase)) {
+      this.addPublic(`${player.name} は再接続しなかったため脱落しました。`);
+      this.eliminate(player, '切断');
+      if (player.id === this.currentPlayerId) this.afterAction();
+      else if (this.players.filter((p) => p.alive).length <= 1) this.afterAction();
+    }
+    if (this.hostSessionId === sessionId) {
+      const nextHost = this.players.find((p) => p.connected);
+      if (nextHost) {
+        this.hostSessionId = nextHost.sessionId;
+        this.addPublic(`${nextHost.name} が新しいホストになりました。`);
+      }
+    }
+  }
+
+  reconnect(sessionId, socketId) {
+    const player = this.bySession(sessionId);
+    if (!player) throw new Error('再接続情報が見つかりません。');
+    player.socketId = socketId;
+    player.connected = true;
+    this.addPublic(`${player.name} が再接続しました。`);
+    return player;
+  }
+
+  resetMatch(sessionId) {
+    if (sessionId !== this.hostSessionId || this.phase !== 'match_over') throw new Error('ホストだけが新しいマッチを開始できます。');
+    this.phase = 'lobby';
+    this.roundNumber = 0;
+    this.currentPlayerId = null;
+    this.publicLog = [];
+    for (const p of this.players) {
+      p.score = 0;
+      p.alive = false;
+      p.hand = [];
+      p.played = [];
+      p.protected = false;
+    }
+    this.addPublic('新しいマッチの準備ができました。');
+  }
+
+  publicState(forSessionId) {
+    const viewer = this.bySession(forSessionId);
+    return {
+      code: this.code,
+      phase: this.phase,
+      roundNumber: this.roundNumber,
+      turnNumber: this.turnNumber,
+      targetScore: this.targetScore,
+      deckCount: this.deck.length,
+      currentPlayerId: this.currentPlayerId,
+      viewerId: viewer?.id,
+      isHost: this.hostSessionId === forSessionId,
+      hand: viewer?.hand || [],
+      validTargets: viewer?.id === this.currentPlayerId ? this.validTargets(viewer).map((p) => p.id) : [],
+      players: this.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        score: p.score,
+        alive: p.alive,
+        protected: p.protected,
+        connected: p.connected,
+        played: p.played
+      })),
+      publicLog: this.publicLog.slice(-80),
+      privateLog: (this.privateLogs.get(forSessionId) || []).slice(-30)
+    };
+  }
+
+  currentPlayer() { return this.players.find((p) => p.id === this.currentPlayerId); }
+  bySession(sessionId) { return this.players.find((p) => p.sessionId === sessionId); }
+  cardLabel(card) { return card ? `${card.name}（${card.value}）` : 'なし'; }
+  addPublic(text) { this.publicLog.push({ id: ++this.logSeq, text }); }
+  addPrivate(player, text) {
+    const logs = this.privateLogs.get(player.sessionId) || [];
+    logs.push({ id: ++this.logSeq, text });
+    this.privateLogs.set(player.sessionId, logs);
+  }
+}
+
+function makePlayer(name, socketId, sessionId = crypto.randomUUID()) {
+  return { id: crypto.randomUUID(), sessionId, socketId, name, connected: true, score: 0, alive: false, protected: false, hand: [], played: [] };
+}
+
+module.exports = { CARD_DEFS, GameRoom, makeDeck, makePlayer, shuffle };
