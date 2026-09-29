@@ -43,6 +43,7 @@ class GameRoom {
     this.currentPlayerId = null;
     this.deck = [];
     this.removedCard = null;
+    this.pendingAction = null;
     this.publicLog = [];
     this.privateLogs = new Map();
     this.logSeq = 0;
@@ -84,6 +85,7 @@ class GameRoom {
     this.logSeq = 0;
     this.deck = shuffle(makeDeck(), this.random);
     this.removedCard = this.deck.pop();
+    this.pendingAction = null;
     for (const p of this.players) {
       p.alive = p.connected;
       p.protected = false;
@@ -127,20 +129,32 @@ class GameRoom {
     const index = actor.hand.findIndex((c) => c.id === payload.cardId);
     if (index < 0) throw new Error('そのカードは手札にありません。');
     const card = actor.hand[index];
-    const targets = this.validTargets(actor);
-    let target = null;
-    if ([1, 2, 3, 6].includes(card.value) && targets.length) {
-      target = targets.find((p) => p.id === payload.targetId);
-      if (!target) throw new Error('有効な対象を選んでください。');
-    }
-    if (card.value === 1 && targets.length) {
-      const guess = Number(payload.guess);
-      if (!Number.isInteger(guess) || guess < 1 || guess > 8) throw new Error('予想は1〜8で指定してください。');
-    }
     actor.hand.splice(index, 1);
     actor.played.push({ ...card, reason: 'play', order: this.turnNumber });
     this.addPublic(`${actor.name} が ${card.name}（${card.value}）を出しました。`);
-    this.resolveCard(actor, card, target, Number(payload.guess));
+    const targets = this.validTargets(actor);
+    if ([1, 2, 3, 6].includes(card.value) && targets.length) {
+      this.phase = 'effect';
+      this.pendingAction = { actorId: actor.id, card };
+      this.addPublic(`${actor.name} が効果の対象を選んでいます。`);
+      return;
+    }
+    this.resolveCard(actor, card, null, null);
+    this.afterAction();
+  }
+
+  resolveEffect(sessionId, payload) {
+    if (this.phase !== 'effect' || !this.pendingAction) throw new Error('現在は対象を選べません。');
+    const actor = this.currentPlayer();
+    if (!actor || actor.sessionId !== sessionId || this.pendingAction.actorId !== actor.id) throw new Error('あなたが選択する効果ではありません。');
+    const target = this.validTargets(actor).find((p) => p.id === payload.targetId);
+    if (!target) throw new Error('有効な対象を選んでください。');
+    const { card } = this.pendingAction;
+    const guess = Number(payload.guess);
+    if (card.value === 1 && (!Number.isInteger(guess) || guess < 1 || guess > 8)) throw new Error('予想は1〜8で指定してください。');
+    this.pendingAction = null;
+    this.phase = 'turn';
+    this.resolveCard(actor, card, target, guess);
     this.afterAction();
   }
 
@@ -255,6 +269,7 @@ class GameRoom {
   }
 
   finishRound(winners, reason) {
+    this.pendingAction = null;
     if (!winners.length) {
       this.phase = 'round_over';
       this.addPublic(`ラウンド終了：${reason}。得点者はいません。`);
@@ -276,14 +291,42 @@ class GameRoom {
     this.addPublic(`${player.name} の接続が切れました。60秒間再接続を待ちます。`);
   }
 
+  leaveRoom(sessionId) {
+    const player = this.bySession(sessionId);
+    if (!player) return;
+    player.connected = false;
+    this.addPublic(`${player.name} がタイトルへ戻りました。`);
+    if (['lobby', 'round_over', 'match_over'].includes(this.phase)) {
+      this.players = this.players.filter((p) => p !== player);
+    } else if (player.alive) {
+      this.eliminate(player, '退出');
+      if (this.pendingAction?.actorId === player.id) {
+        this.pendingAction = null;
+        this.phase = 'turn';
+      }
+      if (player.id === this.currentPlayerId || this.players.filter((p) => p.alive).length <= 1) this.afterAction();
+    }
+    if (this.hostSessionId === sessionId) {
+      const nextHost = this.players.find((p) => p.connected);
+      if (nextHost) {
+        this.hostSessionId = nextHost.sessionId;
+        this.addPublic(`${nextHost.name} が新しいホストになりました。`);
+      }
+    }
+  }
+
   expireDisconnected(sessionId) {
     const player = this.bySession(sessionId);
     if (!player || player.connected) return;
     if (this.phase === 'lobby') {
       this.players = this.players.filter((p) => p !== player);
-    } else if (player.alive && ['turn'].includes(this.phase)) {
+    } else if (player.alive && ['turn', 'effect'].includes(this.phase)) {
       this.addPublic(`${player.name} は再接続しなかったため脱落しました。`);
       this.eliminate(player, '切断');
+      if (this.pendingAction?.actorId === player.id) {
+        this.pendingAction = null;
+        this.phase = 'turn';
+      }
       if (player.id === this.currentPlayerId) this.afterAction();
       else if (this.players.filter((p) => p.alive).length <= 1) this.afterAction();
     }
@@ -334,7 +377,8 @@ class GameRoom {
       viewerId: viewer?.id,
       isHost: this.hostSessionId === forSessionId,
       hand: viewer?.hand || [],
-      validTargets: viewer?.id === this.currentPlayerId ? this.validTargets(viewer).map((p) => p.id) : [],
+      validTargets: viewer?.id === this.currentPlayerId && ['turn', 'effect'].includes(this.phase) ? this.validTargets(viewer).map((p) => p.id) : [],
+      pendingAction: viewer?.id === this.pendingAction?.actorId ? { card: this.pendingAction.card } : null,
       players: this.players.map((p) => ({
         id: p.id,
         name: p.name,

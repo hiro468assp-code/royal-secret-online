@@ -28,9 +28,9 @@ function showToast(text) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-function showAccess() { $('accessView').classList.remove('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.add('hidden'); }
-function showHome() { $('accessView').classList.add('hidden'); $('homeView').classList.remove('hidden'); $('gameView').classList.add('hidden'); }
-function enterGame() { $('accessView').classList.add('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); }
+function showAccess() { $('accessView').classList.remove('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.add('hidden'); $('titleButton').classList.add('hidden'); }
+function showHome() { $('accessView').classList.add('hidden'); $('homeView').classList.remove('hidden'); $('gameView').classList.add('hidden'); $('titleButton').classList.add('hidden'); }
+function enterGame() { $('accessView').classList.add('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); $('titleButton').classList.remove('hidden'); }
 function escape(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
 
 $('createButton').onclick = async () => {
@@ -43,7 +43,10 @@ $('joinButton').onclick = async () => {
 };
 $('codeInput').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, ''); });
 $('copyCode').onclick = async () => { await navigator.clipboard.writeText(state.code); showToast('ルームコードをコピーしました'); };
-$('leaveButton').onclick = () => { localStorage.removeItem(storageKey); location.reload(); };
+$('titleButton').onclick = async () => {
+  if (state) await call('leaveRoom');
+  localStorage.removeItem(storageKey); session = null; state = null; selectedCardId = null; showHome();
+};
 
 socket.on('connect', async () => {
   if (accessRequired) {
@@ -61,10 +64,10 @@ socket.on('state', (next) => { state = next; selectedCardId = state.hand.some((c
 function render() {
   $('copyCode').textContent = state.code;
   $('deckCount').textContent = state.phase === 'lobby' ? '—' : state.deckCount;
-  const labels = { lobby:'待機中', turn:'対戦中', round_over:'ラウンド終了', match_over:'マッチ終了' };
+  const labels = { lobby:'待機中', turn:'対戦中', effect:'効果選択', round_over:'ラウンド終了', match_over:'マッチ終了' };
   $('phaseBadge').textContent = labels[state.phase] || state.phase;
   const current = state.players.find((p) => p.id === state.currentPlayerId);
-  $('turnStatus').textContent = state.phase === 'turn' ? (current?.id === state.viewerId ? 'あなたの手番です' : `${current?.name || ''} の手番`) : `先取 ${state.targetScore}点`;
+  $('turnStatus').textContent = ['turn','effect'].includes(state.phase) ? (current?.id === state.viewerId ? 'あなたの手番です' : `${current?.name || ''} の手番`) : `先取 ${state.targetScore}点`;
   renderPlayers(); renderAction(); renderHand(); renderLogs();
 }
 
@@ -96,8 +99,12 @@ function renderAction() {
     const top = Math.max(...state.players.map((p) => p.score)); const winners = state.players.filter((p)=>p.score===top).map((p)=>p.name).join('・');
     panel.innerHTML = `<div class="action-copy"><h3>♛ ${escape(winners)} の勝利</h3><p>マッチが終了しました。</p>${state.isHost ? '<button id="resetButton" class="primary">新しいマッチ</button>' : ''}</div>`;
     if (state.isHost) $('resetButton').onclick = () => call('resetMatch');
+  } else if (state.phase === 'effect' && state.currentPlayerId !== state.viewerId) {
+    panel.innerHTML = '<div class="action-copy"><h3>効果の対象を選択中</h3><p>カードは場に出ました。使用者の選択を待っています。</p></div>';
   } else if (state.currentPlayerId !== state.viewerId) {
     panel.innerHTML = '<div class="action-copy"><h3>相手の手番です</h3><p>公開ログを見ながら、次の一手を考えましょう。</p></div>';
+  } else if (state.phase === 'effect' && state.pendingAction) {
+    renderTargetForm(panel);
   } else if (!selectedCardId) {
     panel.innerHTML = '<div class="action-copy"><h3>出すカードを選択</h3><p>手札のどちらかをタップしてください。</p></div>';
   } else renderEffectForm(panel);
@@ -105,16 +112,27 @@ function renderAction() {
 
 function renderEffectForm(panel) {
   const card = state.hand.find((c) => c.id === selectedCardId);
-  const needsTarget = [1,2,3,6].includes(card.value) && state.validTargets.length;
-  const targets = state.players.filter((p) => state.validTargets.includes(p.id));
   panel.innerHTML = `<form id="playForm" class="effect-form">
     <div class="action-copy"><h3>${escape(card.name)}を出す</h3><p>${escape(card.effect)}</p></div>
-    ${needsTarget ? `<label>対象<select id="targetSelect">${targets.map((p)=>`<option value="${p.id}">${escape(p.name)}</option>`).join('')}</select></label>` : '<div></div>'}
-    ${card.value === 1 && needsTarget ? `<label>予想<select id="guessSelect">${[1,2,3,4,5,6,7,8].map((n)=>`<option>${n}</option>`).join('')}</select></label>` : ''}
-    <button class="primary" type="submit">このカードを出す</button></form>`;
+    <div></div><button class="primary" type="submit">場に出す</button></form>`;
   $('playForm').onsubmit = async (e) => {
     e.preventDefault(); const button = e.currentTarget.querySelector('button'); button.disabled = true;
-    const result = await call('playCard', { cardId:card.id, targetId:$('targetSelect')?.value, guess:$('guessSelect')?.value });
+    const result = await call('playCard', { cardId:card.id });
+    if (!result?.ok) button.disabled = false;
+  };
+}
+
+function renderTargetForm(panel) {
+  const card = state.pendingAction.card;
+  const targets = state.players.filter((p) => state.validTargets.includes(p.id));
+  panel.innerHTML = `<form id="targetForm" class="effect-form">
+    <div class="action-copy"><h3>${escape(card.name)}の対象を選択</h3><p>カードは公開済みです。続けて効果を解決します。</p></div>
+    <label>対象<select id="targetSelect">${targets.map((p)=>`<option value="${p.id}">${escape(p.name)}</option>`).join('')}</select></label>
+    ${card.value === 1 ? `<label>予想<select id="guessSelect">${[1,2,3,4,5,6,7,8].map((n)=>`<option>${n}</option>`).join('')}</select></label>` : ''}
+    <button class="primary" type="submit">効果を解決</button></form>`;
+  $('targetForm').onsubmit = async (e) => {
+    e.preventDefault(); const button = e.currentTarget.querySelector('button'); button.disabled = true;
+    const result = await call('resolveEffect', { targetId:$('targetSelect').value, guess:$('guessSelect')?.value });
     if (!result?.ok) button.disabled = false;
   };
 }

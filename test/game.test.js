@@ -17,6 +17,11 @@ function turnRoom(actorHand, targetHand, extra = {}) {
   players[1].hand = targetHand.map((v, i) => card(v, `b-${i}`));
   return { room, actor: players[0], target: players[1] };
 }
+function playTarget(room, actor, target, cardId, guess) {
+  room.play(actor.sessionId, { cardId });
+  assert.equal(room.phase, 'effect');
+  room.resolveEffect(actor.sessionId, { targetId: target.id, guess });
+}
 
 test('2人と5人でマッチを開始できる', () => {
   for (const count of [2, 5]) {
@@ -30,16 +35,19 @@ test('2人と5人でマッチを開始できる', () => {
 
 test('兵士の的中で対象が脱落し、外れでは生存する', () => {
   let ctx = turnRoom([1, 4], [6]);
-  ctx.room.play(ctx.actor.sessionId, { cardId: 'a-0', targetId: ctx.target.id, guess: 6 });
+  ctx.room.play(ctx.actor.sessionId, { cardId: 'a-0' });
+  assert.equal(ctx.target.alive, true);
+  assert.equal(ctx.actor.played.at(-1).value, 1);
+  ctx.room.resolveEffect(ctx.actor.sessionId, { targetId: ctx.target.id, guess: 6 });
   assert.equal(ctx.target.alive, false);
   ctx = turnRoom([1, 4], [6]);
-  ctx.room.play(ctx.actor.sessionId, { cardId: 'a-0', targetId: ctx.target.id, guess: 5 });
+  playTarget(ctx.room, ctx.actor, ctx.target, 'a-0', 5);
   assert.equal(ctx.target.alive, true);
 });
 
 test('道化の確認結果は使用者だけに見える', () => {
   const { room, actor, target } = turnRoom([2, 4], [8]);
-  room.play(actor.sessionId, { cardId: 'a-0', targetId: target.id });
+  playTarget(room, actor, target, 'a-0');
   assert.match(room.publicState(actor.sessionId).privateLog.at(-1).text, /姫（8）/);
   assert.equal(room.publicState(target.sessionId).privateLog.some((l) => /姫（8）/.test(l.text)), false);
   assert.equal(room.publicLog.some((l) => /姫（8）/.test(l.text)), false);
@@ -47,11 +55,11 @@ test('道化の確認結果は使用者だけに見える', () => {
 
 test('騎士は小さい方だけ脱落し、同値なら両者生存', () => {
   let ctx = turnRoom([3, 4], [6]);
-  ctx.room.play(ctx.actor.sessionId, { cardId: 'a-0', targetId: ctx.target.id });
+  playTarget(ctx.room, ctx.actor, ctx.target, 'a-0');
   assert.equal(ctx.actor.alive, false);
   assert.equal(ctx.target.alive, true);
   ctx = turnRoom([3, 6], [6]);
-  ctx.room.play(ctx.actor.sessionId, { cardId: 'a-0', targetId: ctx.target.id });
+  playTarget(ctx.room, ctx.actor, ctx.target, 'a-0');
   assert.equal(ctx.actor.alive, true);
   assert.equal(ctx.target.alive, true);
 });
@@ -84,7 +92,7 @@ test('魔術師で姫を捨てると脱落する', () => {
 
 test('将軍の交換内容は当事者だけに見え、公開ログには漏れない', () => {
   const { room, actor, target } = turnRoom([6, 8], [7]);
-  room.play(actor.sessionId, { cardId: 'a-0', targetId: target.id });
+  playTarget(room, actor, target, 'a-0');
   assert.equal(actor.hand[0].value, 7);
   assert.equal(target.hand[0].value, 8);
   assert.equal(room.publicLog.some((l) => /姫|大臣/.test(l.text)), false);
@@ -129,9 +137,28 @@ test('最終同点なら全員得点し、規定点到達でマッチ終了', ()
 
 test('他プレイヤー向け状態に手札と秘密ログが漏れない', () => {
   const { room, actor, target } = turnRoom([2, 4], [8]);
-  room.play(actor.sessionId, { cardId: 'a-0', targetId: target.id });
+  playTarget(room, actor, target, 'a-0');
   const targetView = room.publicState(target.sessionId);
   assert.equal(targetView.hand.length, 2); // action advanced and target drew
   assert.equal(targetView.players.some((p) => Object.hasOwn(p, 'hand')), false);
   assert.equal(targetView.privateLog.some((l) => /姫（8）/.test(l.text)), false);
+});
+
+test('対象型カードは公開後に対象を選び、使用者だけが選択情報を受け取る', () => {
+  const { room, actor, target } = turnRoom([2, 4], [8]);
+  room.play(actor.sessionId, { cardId: 'a-0' });
+  assert.equal(room.phase, 'effect');
+  assert.equal(actor.played.at(-1).value, 2);
+  assert.equal(room.publicState(actor.sessionId).pendingAction.card.value, 2);
+  assert.equal(room.publicState(target.sessionId).pendingAction, null);
+  room.resolveEffect(actor.sessionId, { targetId: target.id });
+  assert.notEqual(room.phase, 'effect');
+});
+
+test('タイトルへ戻ると待機ルームから即退出しホストが移る', () => {
+  const { room, players } = roomWith(2);
+  room.leaveRoom(players[0].sessionId);
+  assert.equal(room.players.length, 1);
+  assert.equal(room.players[0].id, players[1].id);
+  assert.equal(room.hostSessionId, players[1].sessionId);
 });

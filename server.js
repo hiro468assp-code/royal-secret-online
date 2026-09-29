@@ -137,6 +137,22 @@ function createAppServer(options = {}) {
       emitRoom(room);
       return {};
     }));
+    socket.on('resolveEffect', (data, ack) => reply(ack, () => {
+      const { room, player } = locate(socket);
+      room.resolveEffect(player.sessionId, data || {});
+      emitRoom(room);
+      return {};
+    }));
+    socket.on('leaveRoom', (_data, ack) => reply(ack, () => {
+      const { room, player } = locate(socket);
+      room.leaveRoom(player.sessionId);
+      socket.leave(room.code);
+      socket.data.roomCode = null;
+      socket.data.sessionId = null;
+      emitRoom(room);
+      if (!room.players.some((p) => p.connected)) rooms.delete(room.code);
+      return {};
+    }));
     socket.on('nextRound', (_data, ack) => reply(ack, () => {
       const { room, player } = locate(socket);
       room.startRound(player.sessionId);
