@@ -116,7 +116,7 @@ class GameRoom {
     player.hand.push(drawn);
     this.addPublic(`${player.name} の手番です（山札 ${this.deck.length}枚）。`);
     if (player.hand.some((c) => c.value === 7) && player.hand.reduce((sum, c) => sum + c.value, 0) >= 12) {
-      this.addPublic(`${player.name} は大臣の条件により即座に脱落しました。`);
+      this.addPublic(`【大臣】${player.name}：ドロー後の手札合計が12以上になったため、即座に脱落しました。`, 'effect');
       this.eliminate(player, '大臣');
       return this.afterAction();
     }
@@ -135,12 +135,12 @@ class GameRoom {
     const card = actor.hand[index];
     actor.hand.splice(index, 1);
     actor.played.push({ ...card, reason: 'play', order: this.turnNumber });
-    this.addPublic(`${actor.name} が ${card.name}（${card.value}）を出しました。`);
+    this.addPublic(`${actor.name} が ${card.name}（${card.value}）を場に出しました。`, 'play');
     const targets = this.validTargets(actor);
     if ([1, 2, 3, 6].includes(card.value) && targets.length) {
       this.phase = 'effect';
       this.pendingAction = { actorId: actor.id, card };
-      this.addPublic(`${actor.name} が効果の対象を選んでいます。`);
+      this.addPublic(`【${card.name}】${actor.name} が効果の対象を選んでいます…。`, 'pending');
       return;
     }
     this.resolveCard(actor, card, null, null);
@@ -164,14 +164,14 @@ class GameRoom {
 
   resolveCard(actor, card, target, guess) {
     if ([1, 2, 3, 6].includes(card.value) && !target) {
-      this.addPublic('有効な対象がいないため、効果はありません。');
+      this.addPublic(`【${card.name}】${actor.name}：有効な対象がいないため、効果なし。`, 'effect');
       return;
     }
     if (card.value === 1) {
       if (target.hand[0]?.value === guess) {
-        this.addPublic(`${actor.name} の予想「${guess}」は的中。${target.name} が脱落しました。`);
+        this.addPublic(`【兵士】${actor.name} → ${target.name}：手札を「${guess}」と予想 → 的中。${target.name} が脱落しました。`, 'effect');
         this.eliminate(target, '兵士');
-      } else this.addPublic(`${actor.name} の予想「${guess}」は外れました。`);
+      } else this.addPublic(`【兵士】${actor.name} → ${target.name}：手札を「${guess}」と予想 → 外れ。${target.name} は生存しています。`, 'effect');
     } else if (card.value === 2) {
       this.addPrivate(actor, `${target.name} の手札は ${this.cardLabel(target.hand[0])} です。`);
       this.privateNotices.set(actor.sessionId, {
@@ -181,29 +181,29 @@ class GameRoom {
         targetName: target.name,
         card: target.hand[0]
       });
-      this.addPublic(`${actor.name} が ${target.name} の手札を秘密に確認しました。`);
+      this.addPublic(`【道化】${actor.name} → ${target.name}：手札を確認しました（内容は${actor.name}だけに表示）。`, 'effect');
     } else if (card.value === 3) {
       const own = actor.hand[0];
       const other = target.hand[0];
       this.addPrivate(actor, `${target.name} と比較：あなた ${this.cardLabel(own)} / 相手 ${this.cardLabel(other)}`);
       this.addPrivate(target, `${actor.name} と比較：あなた ${this.cardLabel(other)} / 相手 ${this.cardLabel(own)}`);
       if (own.value < other.value) {
-        this.addPublic(`騎士の比較で ${actor.name} が脱落しました。`);
+        this.addPublic(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → ${actor.name} が小さく、脱落しました。`, 'effect');
         this.eliminate(actor, '騎士');
       } else if (other.value < own.value) {
-        this.addPublic(`騎士の比較で ${target.name} が脱落しました。`);
+        this.addPublic(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → ${target.name} が小さく、脱落しました。`, 'effect');
         this.eliminate(target, '騎士');
-      } else this.addPublic('騎士の比較は同値。両者とも生存します。');
+      } else this.addPublic(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → 同値。両者とも生存します。`, 'effect');
     } else if (card.value === 4) {
       actor.protected = true;
-      this.addPublic(`${actor.name} は次の自分の手番まで僧侶に守られます。`);
+      this.addPublic(`【僧侶】${actor.name}：次の自分の手番まで、他者の効果から守られます。`, 'effect');
     } else if (card.value === 5) {
       const discarded = actor.hand.shift();
       if (discarded) {
         actor.played.push({ ...discarded, reason: 'magic', order: this.turnNumber });
-        this.addPublic(`${actor.name} は魔術師で ${discarded.name}（${discarded.value}）を公開して捨てました。`);
+        this.addPublic(`【魔術師】${actor.name}：残り手札の ${discarded.name}（${discarded.value}）を公開して捨てました。`, 'effect');
         if (discarded.value === 8) {
-          this.addPublic(`${actor.name} は姫を捨てたため脱落しました。`);
+          this.addPublic(`【魔術師 → 姫】${actor.name}：姫を捨てたため脱落しました。`, 'effect');
           this.eliminate(actor, '姫');
           return;
         }
@@ -212,18 +212,18 @@ class GameRoom {
       if (replacement) {
         actor.hand.push(replacement);
         this.addPrivate(actor, `魔術師で ${this.cardLabel(replacement)} を引きました。`);
-        this.addPublic(`${actor.name} は新しい手札を1枚引きました。`);
+        this.addPublic(`【魔術師】${actor.name}：新しい手札を1枚引きました。`, 'effect');
       }
     } else if (card.value === 6) {
       const own = actor.hand[0];
       const other = target.hand[0];
       actor.hand[0] = other;
       target.hand[0] = own;
-      this.addPublic(`${actor.name} と ${target.name} が手札を交換しました。`);
+      this.addPublic(`【将軍】${actor.name} ⇄ ${target.name}：手札を交換しました（内容は当事者だけに表示）。`, 'effect');
       this.addPrivate(actor, `${target.name} と交換し、${this.cardLabel(other)} を受け取りました。`);
       this.addPrivate(target, `${actor.name} と交換し、${this.cardLabel(own)} を受け取りました。`);
     } else if (card.value === 8) {
-      this.addPublic(`${actor.name} は姫を出したため脱落しました。`);
+      this.addPublic(`【姫】${actor.name}：姫を場に出したため脱落しました。`, 'effect');
       this.eliminate(actor, '姫');
     }
   }
@@ -409,7 +409,7 @@ class GameRoom {
   currentPlayer() { return this.players.find((p) => p.id === this.currentPlayerId); }
   bySession(sessionId) { return this.players.find((p) => p.sessionId === sessionId); }
   cardLabel(card) { return card ? `${card.name}（${card.value}）` : 'なし'; }
-  addPublic(text) { this.publicLog.push({ id: ++this.logSeq, text }); }
+  addPublic(text, kind = 'info') { this.publicLog.push({ id: ++this.logSeq, text, kind }); }
   addPrivate(player, text) {
     const logs = this.privateLogs.get(player.sessionId) || [];
     logs.push({ id: ++this.logSeq, text });

@@ -40,14 +40,17 @@ test('兵士の的中で対象が脱落し、外れでは生存する', () => {
   assert.equal(ctx.actor.played.at(-1).value, 1);
   ctx.room.resolveEffect(ctx.actor.sessionId, { targetId: ctx.target.id, guess: 6 });
   assert.equal(ctx.target.alive, false);
+  assert.match(ctx.room.publicLog.find((l) => l.kind === 'effect' && /兵士/.test(l.text)).text, /P1 → P2.*「6」.*的中/);
   ctx = turnRoom([1, 4], [6]);
   playTarget(ctx.room, ctx.actor, ctx.target, 'a-0', 5);
   assert.equal(ctx.target.alive, true);
+  assert.match(ctx.room.publicLog.find((l) => l.kind === 'effect' && /兵士/.test(l.text)).text, /P1 → P2.*「5」.*外れ/);
 });
 
 test('道化の確認結果は使用者だけに見える', () => {
   const { room, actor, target } = turnRoom([2, 4], [8]);
   playTarget(room, actor, target, 'a-0');
+  assert.match(room.publicLog.find((l) => l.kind === 'effect' && /道化/.test(l.text)).text, /P1 → P2/);
   assert.match(room.publicState(actor.sessionId).privateLog.at(-1).text, /姫（8）/);
   assert.equal(room.publicState(actor.sessionId).secretNotice.card.value, 8);
   assert.equal(room.publicState(actor.sessionId).secretNotice.targetName, target.name);

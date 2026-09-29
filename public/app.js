@@ -175,7 +175,8 @@ function renderHand() {
 }
 
 function renderLogs() {
-  const fill = (el, logs, empty) => { el.innerHTML = logs.length ? logs.slice().reverse().map((l)=>`<div class="log-entry">${escape(l.text)}</div>`).join('') : `<div class="empty">${empty}</div>`; };
+  const kindLabels = { play:'場に出したカード', pending:'対象選択中', effect:'効果結果' };
+  const fill = (el, logs, empty) => { el.innerHTML = logs.length ? logs.slice().reverse().map((l)=>`<div class="log-entry log-${escape(l.kind || 'info')}">${kindLabels[l.kind] ? `<span class="log-kind">${kindLabels[l.kind]}</span>` : ''}<span>${escape(l.text)}</span></div>`).join('') : `<div class="empty">${empty}</div>`; };
   fill($('publicLog'), state.publicLog, 'まだログはありません'); fill($('privateLog'), state.privateLog, '秘密の情報はここに表示されます');
 }
 
