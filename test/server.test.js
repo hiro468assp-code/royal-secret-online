@@ -42,3 +42,22 @@ test('2クライアントが作成・参加・開始でき、相手の手札は�
   assert.ok(hostState.hand.length >= 1 && hostState.hand.length <= 2);
   assert.ok(guestState.hand.length >= 1 && guestState.hand.length <= 2);
 });
+
+test('アクセスキーが設定されている場合は認証前のルーム操作を拒否する', async (t) => {
+  const { server, io } = createAppServer({ accessKey: 'secret-test-key' });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => io.close(() => server.close(resolve))));
+  const socket = Client(`http://127.0.0.1:${server.address().port}`, { transports: ['websocket'] });
+  t.after(() => socket.close());
+  await new Promise((resolve) => socket.on('connect', resolve));
+
+  const denied = await emit(socket, 'createRoom', { name: '侵入者' });
+  assert.equal(denied.ok, false);
+  assert.match(denied.error, /アクセスキー/);
+  const wrong = await emit(socket, 'unlock', { accessKey: 'wrong' });
+  assert.equal(wrong.ok, false);
+  const unlocked = await emit(socket, 'unlock', { accessKey: 'secret-test-key' });
+  assert.equal(unlocked.ok, true);
+  const created = await emit(socket, 'createRoom', { name: '招待者' });
+  assert.equal(created.ok, true);
+});

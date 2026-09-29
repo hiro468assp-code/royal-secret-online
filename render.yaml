@@ -7,3 +7,6 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     autoDeployTrigger: commit
+    envVars:
+      - key: ACCESS_KEY
+        sync: false

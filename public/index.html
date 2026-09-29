@@ -19,7 +19,19 @@
       <button id="rulesButton" class="ghost compact">遊び方</button>
     </header>
 
-    <section id="homeView" class="home panel">
+    <section id="accessView" class="access panel hidden">
+      <div class="access-seal">♛</div>
+      <p class="eyebrow">PRIVATE ACCESS</p>
+      <h2>招待された方のみ<br>入室できます</h2>
+      <p>共有されたアクセスキーを入力してください。</p>
+      <form id="accessForm">
+        <label>アクセスキー<input id="accessInput" type="password" autocomplete="off" maxlength="64" placeholder="アクセスキー"></label>
+        <button class="primary" type="submit">ゲームに入る</button>
+      </form>
+      <p id="accessError" class="error" role="alert"></p>
+    </section>
+
+    <section id="homeView" class="home panel hidden">
       <div class="hero-copy">
         <p class="kicker">秘密を読み、最後まで生き残れ。</p>
         <h2>一枚の手札が<br><em>運命を変える。</em></h2>

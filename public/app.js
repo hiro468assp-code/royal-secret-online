@@ -3,6 +3,8 @@ const $ = (id) => document.getElementById(id);
 let state = null;
 let selectedCardId = null;
 let toastTimer;
+let accessRequired = true;
+let accessKey = sessionStorage.getItem('royal-secret-access') || '';
 
 const storageKey = 'royal-secret-session';
 let session = JSON.parse(localStorage.getItem(storageKey) || 'null');
@@ -26,7 +28,9 @@ function showToast(text) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-function enterGame() { $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); }
+function showAccess() { $('accessView').classList.remove('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.add('hidden'); }
+function showHome() { $('accessView').classList.add('hidden'); $('homeView').classList.remove('hidden'); $('gameView').classList.add('hidden'); }
+function enterGame() { $('accessView').classList.add('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); }
 function escape(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
 
 $('createButton').onclick = async () => {
@@ -42,10 +46,15 @@ $('copyCode').onclick = async () => { await navigator.clipboard.writeText(state.
 $('leaveButton').onclick = () => { localStorage.removeItem(storageKey); location.reload(); };
 
 socket.on('connect', async () => {
+  if (accessRequired) {
+    if (!accessKey) return showAccess();
+    const unlocked = await call('unlock', { accessKey });
+    if (!unlocked?.ok) { accessKey = ''; sessionStorage.removeItem('royal-secret-access'); return showAccess(); }
+  }
   if (session?.roomCode && session?.sessionId) {
     const result = await call('reconnectRoom', session);
     if (result?.ok) enterGame(); else { session = null; localStorage.removeItem(storageKey); }
-  }
+  } else showHome();
 });
 socket.on('state', (next) => { state = next; selectedCardId = state.hand.some((c) => c.id === selectedCardId) ? selectedCardId : null; enterGame(); render(); });
 
@@ -127,3 +136,25 @@ document.querySelectorAll('.tab').forEach((tab) => tab.onclick = () => {
 });
 const rulesDialog = $('rulesDialog'); $('rulesButton').onclick = () => rulesDialog.showModal(); $('closeRules').onclick = () => rulesDialog.close();
 fetch('/api/cards').then((r)=>r.json()).then((defs) => { $('cardGuide').innerHTML = Object.entries(defs).map(([value,d])=>`<div class="guide-row"><strong>${value}・${escape(d.name)} ×${d.count}</strong><p>${escape(d.effect)}</p></div>`).join(''); });
+
+$('accessForm').onsubmit = async (event) => {
+  event.preventDefault();
+  const candidate = $('accessInput').value.trim();
+  const result = await call('unlock', { accessKey: candidate });
+  if (!result?.ok) { $('accessError').textContent = result?.error || 'アクセスできません。'; return; }
+  accessKey = candidate;
+  sessionStorage.setItem('royal-secret-access', accessKey);
+  $('accessError').textContent = '';
+  if (session?.roomCode && session?.sessionId) {
+    const restored = await call('reconnectRoom', session);
+    if (restored?.ok) return enterGame();
+    session = null; localStorage.removeItem(storageKey);
+  }
+  showHome();
+};
+
+fetch('/api/access').then((r) => r.json()).then((config) => {
+  accessRequired = Boolean(config.required);
+  if (!accessRequired && socket.connected && !state) showHome();
+  else if (accessRequired && !accessKey) showAccess();
+}).catch(() => showAccess());

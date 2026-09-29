@@ -5,15 +5,18 @@ const express = require('express');
 const { Server } = require('socket.io');
 const { GameRoom, makePlayer, CARD_DEFS } = require('./game');
 
-function createAppServer() {
+function createAppServer(options = {}) {
   const app = express();
   const server = http.createServer(app);
   const io = new Server(server, { cors: { origin: false } });
   const rooms = new Map();
   const disconnectTimers = new Map();
+  const accessKey = String(options.accessKey ?? process.env.ACCESS_KEY ?? '');
+  const accessAttempts = new Map();
 
   app.use(express.static(path.join(__dirname, 'public')));
   app.get('/health', (_req, res) => res.json({ ok: true, rooms: rooms.size }));
+  app.get('/api/access', (_req, res) => res.json({ required: Boolean(accessKey) }));
   app.get('/api/cards', (_req, res) => res.json(CARD_DEFS));
 
   function code() {
@@ -42,12 +45,41 @@ function createAppServer() {
     return { room, player };
   }
 
+  function keysMatch(input) {
+    const expected = Buffer.from(accessKey);
+    const received = Buffer.from(String(input || ''));
+    return expected.length === received.length && crypto.timingSafeEqual(expected, received);
+  }
+
+  function requireAuthorized(socket) {
+    if (!socket.data.authorized) throw new Error('アクセスキーを入力してください。');
+  }
+
   function reply(ack, fn) {
     try { ack?.({ ok: true, ...fn() }); } catch (error) { ack?.({ ok: false, error: error.message }); }
   }
 
   io.on('connection', (socket) => {
+    socket.data.authorized = !accessKey;
+    socket.on('unlock', (data, ack) => reply(ack, () => {
+      if (!accessKey) { socket.data.authorized = true; return {}; }
+      const address = socket.handshake.address || 'unknown';
+      const now = Date.now();
+      let attempts = accessAttempts.get(address);
+      if (!attempts || attempts.resetAt <= now) attempts = { count: 0, resetAt: now + 15 * 60_000 };
+      if (attempts.count >= 10) throw new Error('試行回数が多すぎます。15分後にお試しください。');
+      if (!keysMatch(data?.accessKey)) {
+        attempts.count += 1;
+        accessAttempts.set(address, attempts);
+        throw new Error('アクセスキーが違います。');
+      }
+      accessAttempts.delete(address);
+      socket.data.authorized = true;
+      return {};
+    }));
+
     socket.on('createRoom', (data, ack) => reply(ack, () => {
+      requireAuthorized(socket);
       const roomCode = code();
       const player = makePlayer(cleanName(data?.name), socket.id);
       const room = new GameRoom(roomCode, player, { targetScore: Number(data?.targetScore) || 3 });
@@ -60,6 +92,7 @@ function createAppServer() {
     }));
 
     socket.on('joinRoom', (data, ack) => reply(ack, () => {
+      requireAuthorized(socket);
       const roomCode = String(data?.roomCode || '').trim().toUpperCase();
       const room = rooms.get(roomCode);
       if (!room) throw new Error('ルームが見つかりません。');
@@ -72,6 +105,7 @@ function createAppServer() {
     }));
 
     socket.on('reconnectRoom', (data, ack) => reply(ack, () => {
+      requireAuthorized(socket);
       const roomCode = String(data?.roomCode || '').trim().toUpperCase();
       const room = rooms.get(roomCode);
       if (!room) throw new Error('ルームの有効期限が切れています。');
@@ -130,6 +164,7 @@ function createAppServer() {
         disconnectTimers.delete(timerKey);
         if (!room.players.some((p) => p.connected)) rooms.delete(room.code);
       }, 60_000);
+      timer.unref?.();
       disconnectTimers.set(timerKey, timer);
     });
   });
