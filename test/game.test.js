@@ -5,7 +5,7 @@ const { GameRoom, makePlayer, CARD_DEFS, PLAYER_COLORS } = require('../game');
 const card = (value, id = `${value}-${Math.random()}`) => ({ id, value, name: CARD_DEFS[value].name, effect: CARD_DEFS[value].effect });
 function roomWith(count = 2) {
   const players = Array.from({ length: count }, (_, i) => makePlayer(`P${i + 1}`, `socket-${i + 1}`, `session-${i + 1}`));
-  const room = new GameRoom('ABCDE', players[0], { random: () => 0.01, targetScore: 3 });
+  const room = new GameRoom(players[0], { random: () => 0.01, targetScore: 3 });
   players.slice(1).forEach((p) => room.addPlayer(p));
   return { room, players };
 }

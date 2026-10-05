@@ -19,32 +19,17 @@
       <div class="header-actions"><button id="titleButton" class="ghost compact hidden">タイトルへ戻る</button><button id="rulesButton" class="ghost compact">遊び方</button></div>
     </header>
 
-    <section id="accessView" class="access panel hidden">
-      <div class="access-seal">♛</div>
-      <p class="eyebrow">PRIVATE ACCESS</p>
-      <h2>招待された方のみ<br>入室できます</h2>
-      <p>共有されたアクセスキーを入力してください。</p>
-      <form id="accessForm">
-        <label>アクセスキー<input id="accessInput" type="password" autocomplete="off" maxlength="64" placeholder="アクセスキー"></label>
-        <button class="primary" type="submit">ゲームに入る</button>
-      </form>
-      <p id="accessError" class="error" role="alert"></p>
-    </section>
-
-    <section id="homeView" class="home panel hidden">
+    <section id="homeView" class="home panel">
       <div class="hero-copy">
         <p class="kicker">秘密を読み、最後まで生き残れ。</p>
         <h2>一枚の手札が<br><em>運命を変える。</em></h2>
-        <p>2〜5人で遊べる、短く濃密なオンライン対戦。友達にルームコードを送るだけで始められます。</p>
+        <p>2〜5人で遊べる、短く濃密なオンライン対戦。同じURLを開き、名前を入力するだけで参加できます。</p>
       </div>
       <div class="entry-card">
         <label>あなたの名前<input id="nameInput" maxlength="16" autocomplete="nickname" placeholder="例：アキラ"></label>
         <fieldset class="color-field"><legend>名前の色</legend><div id="colorPicker" class="color-picker" role="radiogroup" aria-label="名前の色"></div></fieldset>
         <div class="entry-grid">
-          <button id="createButton" class="primary">新しいルームを作る</button>
-          <div class="divider"><span>または</span></div>
-          <label>ルームコード<input id="codeInput" maxlength="5" autocapitalize="characters" placeholder="ABCDE"></label>
-          <button id="joinButton" class="secondary">コードで参加</button>
+          <button id="joinButton" class="primary">ゲームに参加</button>
         </div>
         <p id="homeError" class="error" role="alert"></p>
       </div>
@@ -52,7 +37,6 @@
 
     <section id="gameView" class="game hidden">
       <div class="roombar panel">
-        <div><span class="label">ROOM</span><button id="copyCode" class="room-code" title="コピー"></button></div>
         <div class="status-center"><span id="phaseBadge" class="badge"></span><strong id="turnStatus"></strong></div>
         <div class="deck"><span class="label">山札</span><strong id="deckCount">—</strong><button id="remainingButton" class="count-button">残り枚数</button></div>
       </div>
@@ -91,6 +75,7 @@
     <div id="secretCard" class="reveal-card"></div>
     <p class="secret-warning">この情報はあなたにだけ表示されています。</p>
   </dialog>
+  <div id="cardPlayNotice" class="card-play-notice hidden" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="toast" class="toast" aria-live="polite"></div>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>

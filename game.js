@@ -33,8 +33,7 @@ function shuffle(items, random = Math.random) {
 }
 
 class GameRoom {
-  constructor(code, host, options = {}) {
-    this.code = code;
+  constructor(host, options = {}) {
     this.players = [host];
     this.hostSessionId = host.sessionId;
     const requestedScore = Number(options.targetScore);
@@ -381,7 +380,6 @@ class GameRoom {
   publicState(forSessionId) {
     const viewer = this.bySession(forSessionId);
     return {
-      code: this.code,
       phase: this.phase,
       roundNumber: this.roundNumber,
       turnNumber: this.turnNumber,

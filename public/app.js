@@ -3,13 +3,15 @@ const $ = (id) => document.getElementById(id);
 let state = null;
 let selectedCardId = null;
 let toastTimer;
-let accessRequired = true;
-let accessKey = sessionStorage.getItem('royal-secret-access') || '';
 const playerColors = ['#e15b64', '#f28e2b', '#edc948', '#59a14f', '#2a9d8f', '#4e79a7', '#7b6fd0', '#b07aa1', '#d37295', '#9c755f'];
 let selectedColor = localStorage.getItem('royal-secret-color');
 if (!playerColors.includes(selectedColor)) selectedColor = playerColors[5];
 let cardDefs = {};
 let lastSecretNoticeId = null;
+let cardPlayQueue = [];
+let cardPlayTimer;
+let cardPlayActive = false;
+let cardPlayBaseline = true;
 const cardArtPaths = {
   1: '/assets/cards/soldier.webp',
   2: '/assets/cards/jester.webp',
@@ -33,7 +35,7 @@ function call(event, data = {}) {
 
 function remember(result) {
   if (result?.ok) {
-    session = { roomCode: result.roomCode, sessionId: result.sessionId };
+    session = { sessionId: result.sessionId };
     localStorage.setItem(storageKey, JSON.stringify(session));
   }
 }
@@ -43,9 +45,8 @@ function showToast(text) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
 }
 
-function showAccess() { $('accessView').classList.remove('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.add('hidden'); $('titleButton').classList.add('hidden'); }
-function showHome() { $('accessView').classList.add('hidden'); $('homeView').classList.remove('hidden'); $('gameView').classList.add('hidden'); $('titleButton').classList.add('hidden'); }
-function enterGame() { $('accessView').classList.add('hidden'); $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); $('titleButton').classList.remove('hidden'); }
+function showHome() { clearCardPlays(); cardPlayBaseline = true; $('homeView').classList.remove('hidden'); $('gameView').classList.add('hidden'); $('titleButton').classList.add('hidden'); }
+function enterGame() { $('homeView').classList.add('hidden'); $('gameView').classList.remove('hidden'); $('titleButton').classList.remove('hidden'); }
 function escape(text) { const div = document.createElement('div'); div.textContent = text ?? ''; return div.innerHTML; }
 function cardArt(value, name, className = 'card-art') {
   return `<img class="${className}" src="${cardArtPaths[value]}" alt="${escape(name)}のイラスト" loading="lazy" draggable="false">`;
@@ -60,40 +61,82 @@ function renderColorPicker() {
   });
 }
 
-$('createButton').onclick = async () => {
-  const result = await call('createRoom', { name: $('nameInput').value, color: selectedColor, targetScore: 3 });
-  remember(result); if (result?.ok) enterGame();
-};
 $('joinButton').onclick = async () => {
-  const result = await call('joinRoom', { name: $('nameInput').value, color: selectedColor, roomCode: $('codeInput').value });
+  const result = await call('joinRoom', { name: $('nameInput').value, color: selectedColor });
   remember(result); if (result?.ok) enterGame();
 };
-$('codeInput').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, ''); });
-$('copyCode').onclick = async () => { await navigator.clipboard.writeText(state.code); showToast('ルームコードをコピーしました'); };
 $('titleButton').onclick = async () => {
   if (state) await call('leaveRoom');
   localStorage.removeItem(storageKey); session = null; state = null; selectedCardId = null; showHome();
 };
 
 socket.on('connect', async () => {
-  if (accessRequired) {
-    if (!accessKey) return showAccess();
-    const unlocked = await call('unlock', { accessKey });
-    if (!unlocked?.ok) { accessKey = ''; sessionStorage.removeItem('royal-secret-access'); return showAccess(); }
-  }
-  if (session?.roomCode && session?.sessionId) {
+  if (session?.sessionId) {
     const result = await call('reconnectRoom', session);
-    if (result?.ok) enterGame(); else { session = null; localStorage.removeItem(storageKey); }
+    if (result?.ok) enterGame(); else { session = null; localStorage.removeItem(storageKey); showHome(); }
   } else showHome();
 });
 socket.on('state', (next) => {
+  const plays = collectCardPlays(next);
   state = next;
   selectedCardId = state.hand.some((c) => c.id === selectedCardId) ? selectedCardId : null;
-  enterGame(); render(); showSecretNotice(state.secretNotice);
+  enterGame(); render();
+  cardPlayQueue.push(...plays);
+  showNextCardPlay();
+  showSecretNotice(state.secretNotice);
 });
+socket.on('disconnect', () => { clearCardPlays(); cardPlayBaseline = true; });
+
+function clearCardPlays() {
+  clearTimeout(cardPlayTimer);
+  cardPlayQueue = [];
+  cardPlayActive = false;
+  $('cardPlayNotice').classList.add('hidden');
+  $('cardPlayNotice').replaceChildren();
+}
+
+function collectCardPlays(next) {
+  if (cardPlayBaseline || !state || state.viewerId !== next.viewerId || state.roundNumber !== next.roundNumber || next.phase === 'lobby') {
+    clearCardPlays();
+    cardPlayBaseline = false;
+    return [];
+  }
+  const seen = new Set(state.players.flatMap((p) => p.played.map((c) => c.id)));
+  return next.players.flatMap((player) => player.played
+    .filter((card) => card.reason === 'play' && !seen.has(card.id))
+    .map((card) => {
+      const handCard = [...$('handArea').children].find((el) => el.dataset.cardId === card.id);
+      const playerIndex = state.players.findIndex((p) => p.id === player.id);
+      const source = handCard || $('players').children[playerIndex];
+      const rect = source?.getBoundingClientRect();
+      return { card, player, x: rect ? rect.left + rect.width / 2 - window.innerWidth / 2 : 0,
+        y: rect ? rect.top + rect.height / 2 - window.innerHeight / 2 : 80 };
+    })).sort((a, b) => a.card.order - b.card.order);
+}
+
+function showNextCardPlay() {
+  if (cardPlayActive || !cardPlayQueue.length) return;
+  cardPlayActive = true;
+  const { card, player, x, y } = cardPlayQueue.shift();
+  const notice = $('cardPlayNotice');
+  notice.style.setProperty('--play-x', `${x}px`);
+  notice.style.setProperty('--play-y', `${y}px`);
+  notice.style.setProperty('--player-color', player.color);
+  notice.innerHTML = `<div class="card-play-caption"><strong>${escape(player.name)}</strong><span>がカードを使用</span></div>
+    <div class="card-play-card">${cardArt(card.value, card.name).replace('loading="lazy"', 'loading="eager"')}<div class="card-shade"></div>
+      <div class="card-top"><span class="card-value">${card.value}</span><span class="card-name">${escape(card.name)}</span></div>
+      <div class="card-effect">${escape(card.effect)}</div></div>`;
+  notice.classList.remove('hidden');
+  cardPlayTimer = setTimeout(() => {
+    notice.classList.add('hidden');
+    notice.replaceChildren();
+    cardPlayActive = false;
+    if (cardPlayQueue.length) showNextCardPlay();
+    else showSecretNotice(state?.secretNotice);
+  }, 2300);
+}
 
 function render() {
-  $('copyCode').textContent = state.code;
   $('deckCount').textContent = state.phase === 'lobby' ? '—' : state.deckCount;
   const labels = { lobby:'待機中', turn:'対戦中', effect:'効果選択', round_over:'ラウンド終了', match_over:'マッチ終了' };
   $('phaseBadge').textContent = labels[state.phase] || state.phase;
@@ -181,6 +224,7 @@ function renderLogs() {
 }
 
 function showSecretNotice(notice) {
+  if (cardPlayActive || cardPlayQueue.length) return;
   if (!notice || notice.id === lastSecretNoticeId || notice.type !== 'jester') return;
   lastSecretNoticeId = notice.id;
   $('secretTitle').textContent = notice.title;
@@ -208,25 +252,3 @@ const remainingDialog = $('remainingDialog'); $('remainingButton').onclick = () 
 $('closeSecret').onclick = () => $('secretDialog').close();
 fetch('/api/cards').then((r)=>r.json()).then((defs) => { cardDefs = defs; $('cardGuide').innerHTML = Object.entries(defs).map(([value,d])=>`<div class="guide-row">${cardArt(value, d.name, 'guide-art')}<div><strong>${value}・${escape(d.name)} ×${d.count}</strong><p>${escape(d.effect)}</p></div></div>`).join(''); });
 renderColorPicker();
-
-$('accessForm').onsubmit = async (event) => {
-  event.preventDefault();
-  const candidate = $('accessInput').value.trim();
-  const result = await call('unlock', { accessKey: candidate });
-  if (!result?.ok) { $('accessError').textContent = result?.error || 'アクセスできません。'; return; }
-  accessKey = candidate;
-  sessionStorage.setItem('royal-secret-access', accessKey);
-  $('accessError').textContent = '';
-  if (session?.roomCode && session?.sessionId) {
-    const restored = await call('reconnectRoom', session);
-    if (restored?.ok) return enterGame();
-    session = null; localStorage.removeItem(storageKey);
-  }
-  showHome();
-};
-
-fetch('/api/access').then((r) => r.json()).then((config) => {
-  accessRequired = Boolean(config.required);
-  if (!accessRequired && socket.connected && !state) showHome();
-  else if (accessRequired && !accessKey) showAccess();
-}).catch(() => showAccess());
