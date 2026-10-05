@@ -163,15 +163,19 @@ class GameRoom {
   }
 
   resolveCard(actor, card, target, guess) {
+    const announceTarget = (text) => this.addPublic(text, 'effect', {
+      targetEffect: { actorId: actor.id, targetId: target.id, cardValue: card.value,
+        ...(card.value === 1 ? { guess } : {}) }
+    });
     if ([1, 2, 3, 6].includes(card.value) && !target) {
       this.addPublic(`【${card.name}】${actor.name}：有効な対象がいないため、効果なし。`, 'effect');
       return;
     }
     if (card.value === 1) {
       if (target.hand[0]?.value === guess) {
-        this.addPublic(`【兵士】${actor.name} → ${target.name}：手札を「${guess}」と予想 → 的中。${target.name} が脱落しました。`, 'effect');
+        announceTarget(`【兵士】${actor.name} → ${target.name}：手札を「${guess}」と予想 → 的中。${target.name} が脱落しました。`);
         this.eliminate(target, '兵士');
-      } else this.addPublic(`【兵士】${actor.name} → ${target.name}：手札を「${guess}」と予想 → 外れ。${target.name} は生存しています。`, 'effect');
+      } else announceTarget(`【兵士】${actor.name} → ${target.name}：手札を「${guess}」と予想 → 外れ。${target.name} は生存しています。`);
     } else if (card.value === 2) {
       this.addPrivate(actor, `${target.name} の手札は ${this.cardLabel(target.hand[0])} です。`);
       this.privateNotices.set(actor.sessionId, {
@@ -188,12 +192,12 @@ class GameRoom {
       this.addPrivate(actor, `${target.name} と比較：あなた ${this.cardLabel(own)} / 相手 ${this.cardLabel(other)}`);
       this.addPrivate(target, `${actor.name} と比較：あなた ${this.cardLabel(other)} / 相手 ${this.cardLabel(own)}`);
       if (own.value < other.value) {
-        this.addPublic(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → ${actor.name} が小さく、脱落しました。`, 'effect');
+        announceTarget(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → ${actor.name} が小さく、脱落しました。`);
         this.eliminate(actor, '騎士');
       } else if (other.value < own.value) {
-        this.addPublic(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → ${target.name} が小さく、脱落しました。`, 'effect');
+        announceTarget(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → ${target.name} が小さく、脱落しました。`);
         this.eliminate(target, '騎士');
-      } else this.addPublic(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → 同値。両者とも生存します。`, 'effect');
+      } else announceTarget(`【騎士】${actor.name} ⇄ ${target.name}：手札を秘密比較 → 同値。両者とも生存します。`);
     } else if (card.value === 4) {
       actor.protected = true;
       this.addPublic(`【僧侶】${actor.name}：次の自分の手番まで、他者の効果から守られます。`, 'effect');
@@ -410,7 +414,7 @@ class GameRoom {
   currentPlayer() { return this.players.find((p) => p.id === this.currentPlayerId); }
   bySession(sessionId) { return this.players.find((p) => p.sessionId === sessionId); }
   cardLabel(card) { return card ? `${card.name}（${card.value}）` : 'なし'; }
-  addPublic(text, kind = 'info') { this.publicLog.push({ id: ++this.logSeq, text, kind }); }
+  addPublic(text, kind = 'info', details = {}) { this.publicLog.push({ id: ++this.logSeq, text, kind, ...details }); }
   addPrivate(player, text) {
     const logs = this.privateLogs.get(player.sessionId) || [];
     logs.push({ id: ++this.logSeq, text });

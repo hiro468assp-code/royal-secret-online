@@ -70,6 +70,33 @@ test('騎士は小さい方だけ脱落し、同値なら両者生存', () => {
   assert.equal(ctx.target.alive, true);
 });
 
+test('兵士・騎士の対象演出を全員へ配信し、秘密の手札値は含めない', () => {
+  for (const [value, own, other, guess] of [[1, 4, 6, 6], [1, 4, 6, 5], [3, 4, 6], [3, 6, 4], [3, 6, 6]]) {
+    const { room, actor, target } = turnRoom([value, own], [other]);
+    room.play(actor.sessionId, { cardId: 'a-0' });
+    assert.equal(room.publicLog.some((log) => log.targetEffect), false);
+    room.resolveEffect(actor.sessionId, { targetId: target.id, guess });
+    for (const viewer of [actor, target]) {
+      const events = room.publicState(viewer.sessionId).publicLog.filter((log) => log.targetEffect);
+      assert.equal(events.length, 1);
+      assert.deepEqual(events[0].targetEffect, { actorId: actor.id, targetId: target.id, cardValue: value,
+        ...(value === 1 ? { guess } : {}) });
+    }
+  }
+});
+
+test('不正な対象選択や対象なしでは対象演出を配信しない', () => {
+  const { room, actor, target } = turnRoom([1, 4], [6]);
+  room.play(actor.sessionId, { cardId: 'a-0' });
+  assert.throws(() => room.resolveEffect(actor.sessionId, { targetId: 'invalid', guess: 6 }));
+  assert.throws(() => room.resolveEffect(actor.sessionId, { targetId: target.id, guess: 9 }));
+  assert.equal(room.publicLog.some((log) => log.targetEffect), false);
+  const blocked = turnRoom([3, 4], [6]);
+  blocked.target.protected = true;
+  blocked.room.play(blocked.actor.sessionId, { cardId: 'a-0' });
+  assert.equal(blocked.room.publicLog.some((log) => log.targetEffect), false);
+});
+
 test('僧侶の保護中は対象外で、次の自分の手番開始に解除', () => {
   const { room, actor, target } = turnRoom([4, 2], [1]);
   room.play(actor.sessionId, { cardId: 'a-0' });

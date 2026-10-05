@@ -12,6 +12,7 @@ let cardPlayQueue = [];
 let cardPlayTimer;
 let cardPlayActive = false;
 let cardPlayBaseline = true;
+let activeTargetEffect = null;
 const cardArtPaths = {
   1: '/assets/cards/soldier.webp',
   2: '/assets/cards/jester.webp',
@@ -93,6 +94,9 @@ function clearCardPlays() {
   cardPlayActive = false;
   $('cardPlayNotice').classList.add('hidden');
   $('cardPlayNotice').replaceChildren();
+  activeTargetEffect = null;
+  $('targetEffectLayer').classList.add('hidden');
+  $('targetEffectLayer').replaceChildren();
 }
 
 function collectCardPlays(next) {
@@ -102,7 +106,7 @@ function collectCardPlays(next) {
     return [];
   }
   const seen = new Set(state.players.flatMap((p) => p.played.map((c) => c.id)));
-  return next.players.flatMap((player) => player.played
+  const plays = next.players.flatMap((player) => player.played
     .filter((card) => card.reason === 'play' && !seen.has(card.id))
     .map((card) => {
       const handCard = [...$('handArea').children].find((el) => el.dataset.cardId === card.id);
@@ -112,12 +116,22 @@ function collectCardPlays(next) {
       return { card, player, x: rect ? rect.left + rect.width / 2 - window.innerWidth / 2 : 0,
         y: rect ? rect.top + rect.height / 2 - window.innerHeight / 2 : 80 };
     })).sort((a, b) => a.card.order - b.card.order);
+  const seenLogs = new Set(state.publicLog.map((log) => log.id));
+  const effects = next.publicLog.filter((log) => log.targetEffect && !seenLogs.has(log.id)).map((log) => {
+    const effect = log.targetEffect;
+    const player = next.players.find((p) => p.id === effect.actorId) || state.players.find((p) => p.id === effect.actorId);
+    const target = next.players.find((p) => p.id === effect.targetId) || state.players.find((p) => p.id === effect.targetId);
+    return { type: 'target', player, target, effect, result: log.text };
+  }).filter((event) => event.player && event.target);
+  return [...plays, ...effects];
 }
 
 function showNextCardPlay() {
   if (cardPlayActive || !cardPlayQueue.length) return;
   cardPlayActive = true;
-  const { card, player, x, y } = cardPlayQueue.shift();
+  const event = cardPlayQueue.shift();
+  if (event.type === 'target') { showTargetEffect(event); return; }
+  const { card, player, x, y } = event;
   const notice = $('cardPlayNotice');
   notice.style.setProperty('--play-x', `${x}px`);
   notice.style.setProperty('--play-y', `${y}px`);
@@ -130,11 +144,66 @@ function showNextCardPlay() {
   cardPlayTimer = setTimeout(() => {
     notice.classList.add('hidden');
     notice.replaceChildren();
-    cardPlayActive = false;
-    if (cardPlayQueue.length) showNextCardPlay();
-    else showSecretNotice(state?.secretNotice);
+    finishCardAnimation();
   }, 2300);
 }
+
+function finishCardAnimation() {
+  cardPlayActive = false;
+  if (cardPlayQueue.length) showNextCardPlay();
+  else showSecretNotice(state?.secretNotice);
+}
+
+function showTargetEffect(event) {
+  activeTargetEffect = event;
+  const { player, target, effect, result } = event;
+  const knight = effect.cardValue === 3;
+  const layer = $('targetEffectLayer');
+  layer.style.setProperty('--actor-color', player.color);
+  layer.style.setProperty('--target-color', target.color);
+  layer.innerHTML = `<svg class="target-effect-arrow" aria-hidden="true"><defs><marker id="targetArrowHead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="currentColor"/></marker></defs><line id="targetEffectLine" marker-end="url(#targetArrowHead)"/></svg>
+    <div id="targetActorFrame" class="target-effect-frame actor-frame"><span>使用者</span></div>
+    <div id="targetRecipientFrame" class="target-effect-frame recipient-frame"><span>対象の手札</span></div>
+    <div class="target-effect-notice" role="status" aria-live="polite" aria-atomic="true">
+      ${cardArt(effect.cardValue, knight ? '騎士' : '兵士', 'target-effect-art').replace('loading="lazy"', 'loading="eager"')}
+      <strong class="target-effect-title">${knight ? '騎士 · 手札を比較' : `兵士 ·「${effect.guess}」を予想`}</strong>
+      <div class="target-effect-people"><div><small>使用者</small><strong style="color:${player.color}">${escape(player.name)}</strong></div><b aria-hidden="true">→</b><div><small>対象</small><strong style="color:${target.color}">${escape(target.name)}</strong></div></div>
+      <div class="target-effect-hands" aria-hidden="true">${knight ? '<span class="effect-card-back">?</span><b>⚔</b>' : '<b>➜</b>'}<span class="effect-card-back">?</span></div>
+      <p>${escape(result)}</p>
+    </div>`;
+  layer.classList.remove('hidden');
+  positionTargetEffect();
+  cardPlayTimer = setTimeout(() => {
+    activeTargetEffect = null;
+    layer.classList.add('hidden');
+    layer.replaceChildren();
+    finishCardAnimation();
+  }, 3000);
+}
+
+function positionTargetEffect() {
+  if (!activeTargetEffect) return;
+  const rectFor = (id) => $('players').children[state.players.findIndex((p) => p.id === id)]?.getBoundingClientRect();
+  const actorRect = rectFor(activeTargetEffect.player.id);
+  const targetRect = rectFor(activeTargetEffect.target.id);
+  const positionFrame = (id, rect) => {
+    const frame = $(id);
+    frame.classList.toggle('hidden', !rect);
+    if (rect) Object.assign(frame.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  };
+  positionFrame('targetActorFrame', actorRect);
+  positionFrame('targetRecipientFrame', targetRect);
+  const line = $('targetEffectLine');
+  line.classList.toggle('hidden', !actorRect || !targetRect);
+  if (actorRect && targetRect) {
+    line.setAttribute('x1', actorRect.left + actorRect.width / 2);
+    line.setAttribute('y1', actorRect.top + actorRect.height / 2);
+    line.setAttribute('x2', targetRect.left + targetRect.width / 2);
+    line.setAttribute('y2', targetRect.top + targetRect.height / 2);
+  }
+}
+window.addEventListener('resize', positionTargetEffect);
+window.addEventListener('scroll', positionTargetEffect, { passive: true, capture: true });
 
 function render() {
   $('deckCount').textContent = state.phase === 'lobby' ? '—' : state.deckCount;
@@ -143,6 +212,7 @@ function render() {
   const current = state.players.find((p) => p.id === state.currentPlayerId);
   $('turnStatus').textContent = ['turn','effect'].includes(state.phase) ? (current?.id === state.viewerId ? 'あなたの手番です' : `${current?.name || ''} の手番`) : `先取 ${state.targetScore}点`;
   renderPlayers(); renderAction(); renderHand(); renderLogs();
+  positionTargetEffect();
 }
 
 function renderPlayers() {

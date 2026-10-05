@@ -72,3 +72,25 @@ dialog { width:min(760px,calc(100% - 28px)); max-height:88vh; overflow:auto; bor
 @keyframes card-play-caption{0%,12%{opacity:0;transform:translateY(10px)}24%,84%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-8px)}}
 @media(max-width:480px){.card-play-notice{width:210px}.card-play-card{width:180px;height:255px}.card-play-card .card-value{font-size:35px}.card-play-card .card-name{font-size:22px}.card-play-card .card-effect{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.card-play-card,.card-play-caption{animation:none}}
+
+.target-effect-layer{position:fixed;inset:0;z-index:9;pointer-events:none;color:var(--gold-light)}
+.target-effect-arrow{position:absolute;inset:0;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 0 6px #d8a94d)}
+.target-effect-arrow line{stroke:currentColor;stroke-width:4;stroke-dasharray:12 8;animation:target-arrow-flow .65s linear infinite}
+.target-effect-frame{position:absolute;border:3px solid;border-radius:12px;background:transparent}
+.target-effect-frame span{position:absolute;top:-13px;left:10px;padding:3px 9px;border-radius:5px;background:#17121f;font-size:12px;font-weight:700;border:1px solid currentColor}
+.actor-frame{color:var(--actor-color);box-shadow:0 0 24px color-mix(in srgb,var(--actor-color) 45%,transparent)}
+.recipient-frame{color:var(--target-color);animation:target-recipient-pulse .7s ease-in-out infinite alternate}
+.target-effect-notice{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);width:min(440px,calc(100% - 24px));padding:18px 20px;border:1px solid var(--gold);border-radius:16px;background:linear-gradient(135deg,#30213df5,#100d1cf5);box-shadow:0 16px 60px #000b;animation:target-notice-reveal 3s ease both;text-align:center;color:var(--ink)}
+.target-effect-art{position:absolute;left:18px;top:14px;width:45px;height:64px;border-radius:5px;object-fit:cover;border:1px solid var(--gold)}
+.target-effect-title{display:block;margin:0 0 12px 44px;color:var(--gold-light);font:700 18px "Noto Serif JP"}
+.target-effect-people{display:grid;grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);align-items:center;gap:8px;margin-left:44px}
+.target-effect-people div{display:grid;gap:3px}.target-effect-people small{color:var(--muted);font-size:10px}.target-effect-people strong{font-size:17px;overflow-wrap:anywhere}.target-effect-people>b{font-size:24px;color:var(--gold-light)}
+.target-effect-hands{display:flex;align-items:center;justify-content:center;gap:20px;margin-top:12px;color:var(--gold-light)}
+.effect-card-back{display:grid;place-items:center;width:34px;height:46px;border:1px solid var(--gold);border-radius:5px;background:repeating-linear-gradient(45deg,#392546 0 5px,#241b33 5px 10px);font:700 24px "Noto Serif JP";animation:target-hand-pulse .7s ease-in-out infinite alternate}
+.target-effect-notice p{margin:10px 0 0;font-size:12px;line-height:1.7;color:#eadfce;overflow-wrap:anywhere}
+@keyframes target-arrow-flow{to{stroke-dashoffset:-40}}
+@keyframes target-recipient-pulse{to{box-shadow:0 0 28px var(--target-color),inset 0 0 16px color-mix(in srgb,var(--target-color) 22%,transparent)}}
+@keyframes target-hand-pulse{to{transform:translateY(-4px);box-shadow:0 0 14px #d8a94d77}}
+@keyframes target-notice-reveal{0%{opacity:0;transform:translate(-50%,16px)}12%,88%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,8px)}}
+@media(max-width:480px){.target-effect-notice{bottom:12px;padding:14px}.target-effect-title{font-size:16px}.target-effect-people strong{font-size:15px}.target-effect-art{left:12px;width:40px;height:58px}}
+@media(prefers-reduced-motion:reduce){.target-effect-arrow line,.recipient-frame,.effect-card-back,.target-effect-notice{animation:none}}
